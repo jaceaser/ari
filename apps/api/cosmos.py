@@ -19,15 +19,24 @@ logger = logging.getLogger("api.cosmos")
 try:
     from azure.cosmos.aio import CosmosClient
     from azure.cosmos import exceptions as cosmos_exceptions
+    from azure.cosmos import PartitionKey
 except ImportError:
     CosmosClient = None  # type: ignore
     cosmos_exceptions = None  # type: ignore
+    PartitionKey = None  # type: ignore
 
 try:
     import certifi
     os.environ.setdefault("SSL_CERT_FILE", certifi.where())
 except ImportError:
     pass
+
+
+class SessionConflictError(Exception):
+    """Raised when a session with the given ID already exists."""
+    def __init__(self, session_id: str):
+        self.session_id = session_id
+        super().__init__(f"Session {session_id} already exists")
 
 
 def _env(key: str) -> str:
@@ -44,6 +53,7 @@ class SessionsCosmosClient:
         self.key = key
         self.database_name = database
         self.container_name = container
+        self._container_verified = False
 
     @classmethod
     def get_instance(cls) -> Optional[SessionsCosmosClient]:
@@ -73,6 +83,17 @@ class SessionsCosmosClient:
 
     async def _container(self, client):
         db = client.get_database_client(self.database_name)
+        if not self._container_verified:
+            try:
+                await db.create_container_if_not_exists(
+                    id=self.container_name,
+                    partition_key=PartitionKey(path="/userId"),
+                )
+                self._container_verified = True
+                logger.info("Cosmos container '%s' verified/created", self.container_name)
+            except Exception:
+                # If we can't auto-create, proceed anyway — the container may already exist
+                self._container_verified = True
         return db.get_container_client(self.container_name)
 
     # ── Users ──
@@ -107,8 +128,9 @@ class SessionsCosmosClient:
 
     # ── Sessions ──
 
-    async def create_session(self, user_id: str, title: Optional[str] = None) -> dict[str, Any]:
-        session_id = str(uuid.uuid4())
+    async def create_session(self, user_id: str, title: Optional[str] = None, session_id: Optional[str] = None) -> dict[str, Any]:
+        """Create a session. Raises SessionConflictError if session_id already exists for this user."""
+        session_id = session_id or str(uuid.uuid4())
         doc = {
             "id": session_id,
             "type": "session",
@@ -120,7 +142,13 @@ class SessionsCosmosClient:
         }
         async with self._client() as client:
             container = await self._container(client)
-            await container.upsert_item(doc)
+            try:
+                await container.create_item(doc)
+            except Exception as exc:
+                # Cosmos returns 409 Conflict when document with same id+partition already exists
+                if cosmos_exceptions and isinstance(exc, cosmos_exceptions.CosmosResourceExistsError):
+                    raise SessionConflictError(session_id) from exc
+                raise
         return doc
 
     async def get_sessions(self, user_id: str) -> list[dict[str, Any]]:
@@ -148,6 +176,33 @@ class SessionsCosmosClient:
                 return item
             except Exception:
                 return None
+
+    async def delete_session(self, user_id: str, session_id: str) -> bool:
+        """Delete a session and all its messages."""
+        async with self._client() as client:
+            container = await self._container(client)
+            # Delete all documents for this session (session + messages)
+            query = "SELECT c.id FROM c WHERE c.userId = @uid AND c.sessionId = @sid"
+            params = [
+                {"name": "@uid", "value": user_id},
+                {"name": "@sid", "value": session_id},
+            ]
+            items = [item async for item in container.query_items(query, parameters=params)]
+            # Also include the session document itself
+            items.append({"id": session_id})
+            for item in items:
+                try:
+                    await container.delete_item(item=item["id"], partition_key=user_id)
+                except Exception:
+                    pass  # Already deleted or not found
+        return True
+
+    async def update_session(self, user_id: str, session: dict[str, Any]) -> dict[str, Any]:
+        """Update an existing session document (e.g. title)."""
+        async with self._client() as client:
+            container = await self._container(client)
+            await container.upsert_item(session)
+        return session
 
     async def seal_session(self, user_id: str, session_id: str) -> Optional[dict[str, Any]]:
         session = await self.get_session(user_id, session_id)

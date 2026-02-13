@@ -7,6 +7,7 @@ Uses Azure OpenAI GPT-5.2 with model-driven MCP tool orchestration.
 import json
 import logging
 import os
+import re
 import time
 import uuid
 from datetime import datetime
@@ -94,11 +95,12 @@ app = Quart(__name__)
 app.secret_key = os.getenv("SESSION_SECRET", "dev-secret-change-me")
 
 # Register Phase 2 blueprints
-from routes import auth_bp, sessions_bp, lead_runs_bp  # noqa: E402
+from routes import auth_bp, sessions_bp, lead_runs_bp, documents_bp  # noqa: E402
 
 app.register_blueprint(auth_bp)
 app.register_blueprint(sessions_bp)
 app.register_blueprint(lead_runs_bp)
+app.register_blueprint(documents_bp)
 
 # ============================================================================
 # Configuration
@@ -132,8 +134,8 @@ GLOBAL_SYSTEM_PROMPT = os.getenv("ARI_SYSTEM_PROMPT") or os.getenv(
 # MCP orchestration configuration
 MCP_ENABLED = os.getenv("MCP_ENABLED", "True").lower() == "true"
 MCP_BASE_URL = os.getenv("MCP_BASE_URL", "http://localhost:8100").rstrip("/")
-MCP_TIMEOUT_SECONDS = float(os.getenv("MCP_TIMEOUT_SECONDS", "10"))
-MCP_TOOL_MAX_ROUNDS = int(os.getenv("MCP_TOOL_MAX_ROUNDS", "2"))
+MCP_TIMEOUT_SECONDS = float(os.getenv("MCP_TIMEOUT_SECONDS", "60"))
+MCP_TOOL_MAX_ROUNDS = int(os.getenv("MCP_TOOL_MAX_ROUNDS", "4"))
 MCP_TOOL_MAX_CALLS_PER_ROUND = int(os.getenv("MCP_TOOL_MAX_CALLS_PER_ROUND", "4"))
 
 _azure_client: AsyncAzureOpenAI | None = None
@@ -228,11 +230,12 @@ MCP_TOOL_DEFINITIONS: list[dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "mcp_leads_context",
-            "description": "Get lead-generation context, lead type inference, and retrieval hint.",
+            "description": "Scrape lead properties from a Zillow URL and return an Excel download link with property previews. If the user provides a location without a URL, generate the appropriate Zillow search URL and pass it as the url argument. Always call this tool for lead requests — do not generate Zillow URLs as text.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "prompt": {"type": "string", "description": "Lead generation prompt."}
+                    "prompt": {"type": "string", "description": "Lead generation prompt."},
+                    "url": {"type": "string", "description": "Zillow search URL to scrape for leads."},
                 },
                 "required": ["prompt"],
             },
@@ -385,6 +388,21 @@ MCP_TOOL_DEFINITIONS: list[dict[str, Any]] = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "generate_document",
+            "description": "Convert markdown content to a downloadable Word document (.docx). You MUST call this tool whenever you create a document, contract, agreement, lease, report, or any long-form content. NEVER generate fake download links like 'sandbox:/' or placeholder URLs — ALWAYS use this tool to get a real download URL. Pass ONLY the document body content (the contract/agreement/report text itself) — do NOT include conversational commentary. The tool returns a real Azure download URL that you must include in your response as a markdown link.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "content": {"type": "string", "description": "The full markdown content to convert to DOCX."},
+                    "title": {"type": "string", "description": "Document title (e.g. 'Lease Agreement', 'Market Report')."},
+                },
+                "required": ["content", "title"],
+            },
+        },
+    },
 ]
 
 # ============================================================================
@@ -420,7 +438,7 @@ def _add_security_headers(response: Response) -> Response:
 
 
 # Paths that use JWT auth instead of API key auth
-_JWT_AUTH_PREFIXES = ("/sessions", "/lead-runs", "/auth/")
+_JWT_AUTH_PREFIXES = ("/sessions", "/lead-runs", "/auth/", "/documents")
 
 
 @app.before_request
@@ -554,22 +572,29 @@ def _extract_text_content(content: Any) -> str:
     return ""
 
 
-def _normalize_openai_messages(messages: list[dict[str, Any]]) -> list[dict[str, str]]:
-    normalized: list[dict[str, str]] = []
+def _normalize_openai_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    normalized: list[dict[str, Any]] = []
 
     for message in messages:
         role = str(message.get("role", "")).strip().lower()
         if role not in {"system", "user", "assistant", "tool"}:
             continue
 
-        content = _extract_text_content(message.get("content"))
+        content = message.get("content")
 
-        if role == "tool":
-            normalized.append({"role": role, "content": content or "{}"})
+        # Preserve array content (vision format with image_url parts) as-is
+        if role == "user" and isinstance(content, list):
+            normalized.append({"role": role, "content": content})
             continue
 
-        if content:
-            normalized.append({"role": role, "content": content})
+        text_content = _extract_text_content(content)
+
+        if role == "tool":
+            normalized.append({"role": role, "content": text_content or "{}"})
+            continue
+
+        if text_content:
+            normalized.append({"role": role, "content": text_content})
 
     return normalized
 
@@ -578,9 +603,20 @@ def _last_user_prompt(messages: list[dict[str, Any]]) -> str:
     for message in reversed(messages):
         if message.get("role") != "user":
             continue
-        content = _extract_text_content(message.get("content"))
-        if content:
-            return content
+        content = message.get("content")
+        # Handle vision-format content (array with text + image_url parts)
+        if isinstance(content, list):
+            texts = [
+                p["text"] for p in content
+                if isinstance(p, dict) and p.get("type") == "text" and isinstance(p.get("text"), str)
+            ]
+            result = "\n".join(texts)
+            if result:
+                return result
+            continue
+        text = _extract_text_content(content)
+        if text:
+            return text
     return ""
 
 
@@ -690,14 +726,36 @@ def _tool_completion_args(messages: list[dict[str, Any]]) -> dict[str, Any]:
     return args
 
 
+_GENERATE_DOCUMENT_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "generate_document",
+        "description": "Convert markdown content to a downloadable Word document (.docx). You MUST call this tool whenever you create a document, contract, agreement, lease, report, or any long-form content. NEVER generate fake download links — ALWAYS use this tool to get a real download URL.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "content": {"type": "string", "description": "The full markdown content to convert to DOCX."},
+                "title": {"type": "string", "description": "Document title (e.g. 'Lease Agreement')."},
+            },
+            "required": ["content", "title"],
+        },
+    },
+}
+
+
 def _stream_completion_args(
-    request_body: ChatCompletionRequest, messages: list[dict[str, Any]]
+    request_body: ChatCompletionRequest, messages: list[dict[str, Any]],
+    *, include_doc_tool: bool = True,
 ) -> dict[str, Any]:
     args: dict[str, Any] = {
         "model": AZURE_OPENAI_DEPLOYMENT,
         "messages": messages,
         "stream": True,
     }
+
+    if include_doc_tool:
+        args["tools"] = [_GENERATE_DOCUMENT_TOOL]
+        args["tool_choice"] = "auto"
 
     if _is_gpt5_deployment():
         args["max_completion_tokens"] = request_body.max_tokens
@@ -772,6 +830,138 @@ async def _call_mcp_tool_endpoint(
         }
 
 
+async def _handle_generate_document(arguments: dict[str, Any]) -> dict[str, Any]:
+    """Local tool: convert markdown to DOCX, upload to Azure Blob, return download URL."""
+    import re as _re
+    import time as _time
+
+    from services.azure_blob import AzureBlobService
+    from services.docx_export import markdown_to_docx
+
+    content = arguments.get("content", "")
+    title = arguments.get("title", "Document")
+
+    if not isinstance(content, str) or not content.strip():
+        return {"ok": False, "tool": "generate_document", "error": "content is required"}
+
+    if not isinstance(title, str) or not title.strip():
+        title = "Document"
+    title = title.strip()[:200]
+
+    blob = AzureBlobService.get_instance()
+    if not blob:
+        return {"ok": False, "tool": "generate_document", "error": "Document export not configured (blob storage unavailable)"}
+
+    try:
+        buffer = markdown_to_docx(content, title)
+    except Exception:
+        logger.exception("DOCX generation failed in tool call")
+        return {"ok": False, "tool": "generate_document", "error": "Failed to generate document"}
+
+    # Slugify title for filename
+    slug = title.lower().strip()
+    slug = _re.sub(r"[^\w\s-]", "", slug)
+    slug = _re.sub(r"[\s_]+", "-", slug)
+    slug = _re.sub(r"-+", "-", slug).strip("-")[:60] or "document"
+    filename = f"{slug}_{int(_time.time())}.docx"
+
+    try:
+        url = blob.upload_bytes(
+            container_name="documents",
+            file_name=filename,
+            data=buffer.getvalue(),
+            content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            expiry_minutes=30,
+        )
+    except Exception:
+        logger.exception("Blob upload failed in tool call")
+        return {"ok": False, "tool": "generate_document", "error": "Failed to upload document"}
+
+    return {
+        "ok": True,
+        "tool": "generate_document",
+        "data": {
+            "url": url,
+            "filename": filename,
+            "message": f"Document ready for download. Include this link in your response: {url}",
+        },
+    }
+
+
+# Pattern for fake document URLs the model generates instead of using tools
+_FAKE_DOC_URL_RE = re.compile(
+    r'\[([^\]]*)\]\(((?:sandbox:|https?://files\.openaiusercontent\.com|https?://(?:cdn\.)?openai\.com)[^\)]*\.docx?)\)',
+    re.IGNORECASE,
+)
+
+
+async def _auto_generate_docx_if_needed(response_text: str) -> str | None:
+    """
+    If the model generated fake document links (sandbox:/, openaiusercontent.com),
+    extract the document content, generate a real DOCX, and return a markdown
+    snippet with the real download link.
+    """
+    logger.info("Auto DOCX check (v1): response length=%d", len(response_text) if response_text else 0)
+
+    if not response_text:
+        return None
+
+    match = _FAKE_DOC_URL_RE.search(response_text)
+    if not match:
+        # Also check for bare fake URLs (not in markdown links)
+        bare_fake = re.search(
+            r'https?://files\.openaiusercontent\.com/[^\s\)]+\.docx?',
+            response_text, re.IGNORECASE,
+        )
+        bare_sandbox = re.search(r'sandbox:/[^\s\)]+\.docx?', response_text, re.IGNORECASE)
+        if not bare_fake and not bare_sandbox:
+            logger.info("Auto DOCX: no fake URL found, skipping")
+            return None
+        logger.info("Auto DOCX: found bare fake URL: %s", (bare_fake or bare_sandbox).group(0))
+        title = "Document"
+    else:
+        title = match.group(1) or "Document"
+        logger.info("Auto DOCX: found fake markdown link, title=%s", title)
+
+    try:
+        # Strip commentary after the document content
+        content = response_text
+        for marker in ["### What's", "### How", "### File Details", "---\n\n###",
+                        "If you want", "If for any reason", "### If you",
+                        "### Next", "### ✅ What this", "### ✅ What's"]:
+            idx = content.find(marker)
+            if idx > 0:
+                content = content[:idx].strip()
+                break
+
+        # Remove fake URL lines (markdown links and bare URLs)
+        content = _FAKE_DOC_URL_RE.sub("", content)
+        content = re.sub(r'https?://files\.openaiusercontent\.com/[^\s\)]+', '', content)
+        content = re.sub(r'sandbox:/[^\s\)]+', '', content)
+        # Remove emoji-heavy intro lines
+        content = re.sub(r'^.*(?:👉|✅|📄).*$', '', content, flags=re.MULTILINE)
+        content = content.strip()
+
+        logger.info("Auto DOCX: cleaned content length=%d", len(content))
+
+        if len(content) < 200:
+            logger.info("Auto DOCX: content too short (%d), skipping", len(content))
+            return None
+
+        result = await _handle_generate_document({"content": content, "title": title})
+        logger.info("Auto DOCX: generate result ok=%s", result.get("ok"))
+
+        if result.get("ok") and result.get("data", {}).get("url"):
+            url = result["data"]["url"]
+            return f"\n\n📄 **[Download {title} (.docx)]({url})**"
+        else:
+            logger.error("Auto DOCX: generation failed: %s", result.get("error"))
+    except Exception:
+        logger.exception("Auto DOCX generation failed")
+
+    return None
+
+
 async def _run_mcp_tool_orchestration(
     messages: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
@@ -830,12 +1020,16 @@ async def _run_mcp_tool_orchestration(
             tool_name = tool_call.function.name
             tool_args = _parse_tool_arguments(tool_call.function.arguments)
 
-            tool_result = await _call_mcp_tool_endpoint(
-                tool_name=tool_name,
-                arguments=tool_args,
-                messages=working_messages,
-                fallback_prompt=prompt,
-            )
+            # Local tool handlers (no MCP proxy needed)
+            if tool_name == "generate_document":
+                tool_result = await _handle_generate_document(tool_args)
+            else:
+                tool_result = await _call_mcp_tool_endpoint(
+                    tool_name=tool_name,
+                    arguments=tool_args,
+                    messages=working_messages,
+                    fallback_prompt=prompt,
+                )
 
             working_messages.append(
                 {
@@ -859,9 +1053,14 @@ async def generate_azure_response(
     """
     Stream response from Azure OpenAI GPT-5.2 using SSE format.
     Maintains OpenAI-compatible API contract.
+
+    If the model calls generate_document mid-stream, the tool is executed
+    and a follow-up streaming completion feeds the result back so the model
+    can include the real download URL in its response.
     """
     stream_id = f"chatcmpl-{uuid.uuid4().hex}"
     created = int(time.time())
+    full_response_text = ""
 
     try:
         client = get_azure_client()
@@ -880,17 +1079,102 @@ async def generate_azure_response(
 
         completion_messages = _inject_server_system_prompts(completion_messages)
 
-        response = await client.chat.completions.create(
-            **_stream_completion_args(request_body, completion_messages)
-        )
+        # Stream with up to 2 rounds of tool calls (generate_document)
+        for _round in range(2):
+            response = await client.chat.completions.create(
+                **_stream_completion_args(request_body, completion_messages,
+                                          include_doc_tool=(_round == 0))
+            )
 
-        async for chunk in response:
-            payload = chunk.model_dump(exclude_none=True)
-            payload.setdefault("id", stream_id)
-            payload.setdefault("object", "chat.completion.chunk")
-            payload.setdefault("created", created)
-            payload.setdefault("model", request_body.model)
-            yield _sse_json(payload)
+            round_text = ""
+            tool_call_id = None
+            tool_name = None
+            tool_args_str = ""
+
+            async for chunk in response:
+                payload = chunk.model_dump(exclude_none=True)
+                payload.setdefault("id", stream_id)
+                payload.setdefault("object", "chat.completion.chunk")
+                payload.setdefault("created", created)
+                payload.setdefault("model", request_body.model)
+
+                for choice in payload.get("choices", []):
+                    delta = choice.get("delta", {})
+
+                    # Accumulate text content
+                    if "content" in delta and delta["content"]:
+                        round_text += delta["content"]
+                        full_response_text += delta["content"]
+
+                    # Accumulate tool call arguments (streamed incrementally)
+                    tool_calls = delta.get("tool_calls")
+                    if tool_calls:
+                        for tc in tool_calls:
+                            if tc.get("id"):
+                                tool_call_id = tc["id"]
+                            fn = tc.get("function", {})
+                            if fn.get("name"):
+                                tool_name = fn["name"]
+                            if fn.get("arguments"):
+                                tool_args_str += fn["arguments"]
+
+                # Only forward text-content chunks to the client (skip tool_call deltas)
+                has_text = any(
+                    c.get("delta", {}).get("content")
+                    for c in payload.get("choices", [])
+                )
+                if has_text:
+                    yield _sse_json(payload)
+
+            # If model called generate_document, execute it and loop for follow-up
+            if tool_name == "generate_document" and tool_call_id:
+                logger.info("Model called generate_document tool during streaming")
+                tool_args = _parse_tool_arguments(tool_args_str)
+                tool_result = await _handle_generate_document(tool_args)
+
+                # Add assistant tool_call message + tool result to context
+                completion_messages.append({
+                    "role": "assistant",
+                    "content": round_text or "",
+                    "tool_calls": [{
+                        "id": tool_call_id,
+                        "type": "function",
+                        "function": {
+                            "name": "generate_document",
+                            "arguments": tool_args_str or "{}",
+                        },
+                    }],
+                })
+                completion_messages.append({
+                    "role": "tool",
+                    "tool_call_id": tool_call_id,
+                    "content": json.dumps(tool_result, ensure_ascii=False),
+                })
+                # Continue loop — next round streams the follow-up with tool result
+                continue
+
+            # No tool call — done streaming
+            break
+
+        # Fallback: auto-generate DOCX if model still used fake URLs
+        try:
+            docx_extra = await _auto_generate_docx_if_needed(full_response_text)
+            if docx_extra:
+                extra_chunk = {
+                    "id": stream_id,
+                    "object": "chat.completion.chunk",
+                    "created": created,
+                    "model": request_body.model,
+                    "choices": [{
+                        "index": 0,
+                        "delta": {"content": docx_extra},
+                        "finish_reason": None,
+                    }],
+                }
+                yield _sse_json(extra_chunk)
+        except Exception:
+            logger.exception("Auto DOCX generation failed in streaming response")
+
     except Exception as exc:
         logger.exception("Azure OpenAI streaming error")
         yield _sse_json(

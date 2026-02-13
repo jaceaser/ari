@@ -12,7 +12,7 @@ import pytest
 sys.path.insert(0, os.path.dirname(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from _constants import TEST_JWT_SECRET, TEST_USER_EMAIL, TEST_USER_ID
+from _constants import TEST_JWT_SECRET, TEST_LEAD_RUN_ID, TEST_SESSION_ID, TEST_USER_EMAIL, TEST_USER_ID
 
 
 # ── Fixtures ──
@@ -75,7 +75,7 @@ def mock_cosmos():
     # Default returns
     mock.ensure_user = AsyncMock(return_value={"id": TEST_USER_ID, "email": TEST_USER_EMAIL})
     mock.create_session = AsyncMock(return_value={
-        "id": "sess-123",
+        "id": TEST_SESSION_ID,
         "type": "session",
         "userId": TEST_USER_ID,
         "title": None,
@@ -85,7 +85,7 @@ def mock_cosmos():
     })
     mock.get_sessions = AsyncMock(return_value=[
         {
-            "id": "sess-123",
+            "id": TEST_SESSION_ID,
             "type": "session",
             "userId": TEST_USER_ID,
             "title": "Test Session",
@@ -95,7 +95,7 @@ def mock_cosmos():
         }
     ])
     mock.get_session = AsyncMock(return_value={
-        "id": "sess-123",
+        "id": TEST_SESSION_ID,
         "type": "session",
         "userId": TEST_USER_ID,
         "title": "Test Session",
@@ -104,7 +104,7 @@ def mock_cosmos():
         "sealedAt": None,
     })
     mock.seal_session = AsyncMock(return_value={
-        "id": "sess-123",
+        "id": TEST_SESSION_ID,
         "status": "sealed",
         "sealedAt": "2025-01-01T01:00:00+00:00",
     })
@@ -137,10 +137,10 @@ def mock_cosmos():
             "createdAt": "2025-01-01T00:00:00+00:00",
         },
     ])
-    mock.create_lead_run = AsyncMock(return_value={"id": "lr-123"})
+    mock.create_lead_run = AsyncMock(return_value={"id": TEST_LEAD_RUN_ID})
     mock.get_lead_runs = AsyncMock(return_value=[
         {
-            "id": "lr-123",
+            "id": TEST_LEAD_RUN_ID,
             "summary": "Lead run in Miami",
             "location": "Miami, FL",
             "strategy": "motivated_sellers",
@@ -149,12 +149,12 @@ def mock_cosmos():
         }
     ])
     mock.get_lead_run = AsyncMock(return_value={
-        "id": "lr-123",
+        "id": TEST_LEAD_RUN_ID,
         "summary": "Lead run in Miami",
         "location": "Miami, FL",
         "strategy": "motivated_sellers",
         "resultCount": 25,
-        "fileUrl": "https://storage.example.com/leads/lr-123.csv",
+        "fileUrl": f"https://storage.example.com/leads/{TEST_LEAD_RUN_ID}.csv",
         "filters": {"min_equity": 50},
         "createdAt": "2025-01-01T00:00:00+00:00",
     })
