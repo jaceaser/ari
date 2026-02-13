@@ -6,14 +6,28 @@
 
 | Method | Route | Request | Response | Auth | Notes |
 |--------|-------|---------|----------|------|-------|
-| POST | `/api/chat` | `{ id, message: {id, role, parts}, selectedChatModel, selectedVisibilityType }` | SSE stream (AI SDK format) | NextAuth session | Main chat endpoint |
-| POST | `/api/chat/openai` | OpenAI-compatible `{ model, messages, stream }` | SSE stream (OpenAI format) | None (API key planned) | Proxies to external NEXT_PUBLIC_API_URL |
+| POST | `/api/chat` | `{ id, message: {id, role, parts}, selectedChatModel, selectedVisibilityType }` | SSE stream (AI SDK format) | NextAuth session | Main chat endpoint (local SQLite) |
+| POST | `/api/chat/openai` | `{ messages, session_id? }` | SSE stream (UIMessageStream) | NextAuth session | Routes to `/v1/chat/completions` or `/sessions/:id/messages` |
 | GET | `/api/chat/[id]/stream` | Query: `chatId` | SSE stream | NextAuth session | Resume interrupted stream |
-| GET | `/api/history` | None | `ChatHistory[]` | NextAuth session | List user's chats |
+| GET | `/api/history` | `?limit=N` | `{ chats: Chat[], hasMore }` | NextAuth session | External: proxies GET /sessions; Local: SQLite |
 | POST | `/api/vote` | `{ chatId, messageId, type: "up"|"down" }` | `{ success }` | NextAuth session | Message feedback |
 | POST | `/api/document` | `{ id, title, kind, content }` | Document record | NextAuth session | Create/update document |
 | POST | `/api/files/upload` | FormData (file) | `{ url, name, contentType }` | NextAuth session | File upload |
 | POST | `/api/suggestions` | `{ documentId }` | `Suggestion[]` | NextAuth session | AI suggestions |
+
+### Phase 2: apps/web proxy routes (→ apps/api with JWT)
+
+| Method | Route | Upstream | Auth | Notes |
+|--------|-------|----------|------|-------|
+| GET | `/api/sessions` | GET /sessions | NextAuth → JWT | List user sessions |
+| POST | `/api/sessions` | POST /sessions `{ id?, title? }` | NextAuth → JWT | Create session (optional client ID) |
+| GET | `/api/sessions/[id]/messages` | GET /sessions/:id/messages | NextAuth → JWT | Message history (UI replay) |
+| POST | `/api/sessions/[id]/seal` | POST /sessions/:id/seal | NextAuth → JWT | Seal session |
+| GET | `/api/lead-runs` | GET /lead-runs | NextAuth → JWT | List lead runs |
+| GET | `/api/lead-runs/[id]` | GET /lead-runs/:id | NextAuth → JWT | Lead run detail + file_url |
+| PATCH | `/api/sessions/[id]` | PATCH /sessions/:id `{ title }` | NextAuth → JWT | Update session title |
+| DELETE | `/api/chat?id=` | DELETE /sessions/:id | NextAuth → JWT | Delete session + messages |
+| POST | `/api/files/upload` | POST /documents/upload (FormData) | NextAuth → JWT | Upload file to Azure Blob |
 
 ### Current: apps/api routes
 
@@ -32,8 +46,11 @@
 | GET | `/sessions` | None | `SessionListItem[]` | JWT | List user sessions |
 | GET | `/sessions/<id>` | None | `SessionDetail` | JWT | Get session detail |
 | POST | `/sessions/<id>/seal` | None | `{ id, status, sealed_at }` | JWT | Seal session (no more messages) |
-| POST | `/sessions/<id>/messages` | `{ content: string }` | SSE stream | JWT | Send message + stream response |
+| POST | `/sessions/<id>/messages` | `{ content: string, images?: string[], documents?: {url,name,mediaType}[] }` | SSE stream | JWT | Send message + stream response |
 | GET | `/sessions/<id>/messages` | None | `MessageResponse[]` | JWT | Full message history (UI replay) |
+| PATCH | `/sessions/<id>` | `{ title: string }` | `{ id, title, status }` | JWT | Update session title |
+| DELETE | `/sessions/<id>` | None | `{ id, deleted: true }` | JWT | Delete session + all messages |
+| POST | `/documents/upload` | FormData (file) | `{ url, name, contentType, size }` | JWT | Upload file to Azure Blob |
 | GET | `/lead-runs` | None | `LeadRunListItem[]` | JWT | List lead runs |
 | GET | `/lead-runs/<id>` | None | `LeadRunDetail` | JWT | Lead run detail with file_url |
 
@@ -246,6 +263,8 @@ Error response:
 | `AZURE_COSMOSDB_ACCOUNT_KEY` | Cosmos DB key | (disabled if unset) |
 | `AZURE_COSMOSDB_DATABASE` | Cosmos DB database | db_conversation_history |
 | `AZURE_COSMOSDB_SESSIONS_CONTAINER` | Sessions container | sessions |
+| `AZURE_BLOB_ACCOUNT_NAME` | Blob storage account | (for file uploads/DOCX) |
+| `AZURE_BLOB_ACCOUNT_KEY` | Blob storage key | (for file uploads/DOCX) |
 
 ### Required for apps/mcp
 | Variable | Purpose | Default |
@@ -270,3 +289,16 @@ Error response:
 | `HOST_URL` | Base URL for magic links |
 | `AZURE_SEARCH_*` | Azure Cognitive Search (RAG) |
 | All `AZURE_OPENAI_*` prompts | Route-specific system prompts |
+
+---
+
+## PR5 Manual QA Checklist
+
+1. **Login** — Open `http://localhost:3000`, log in via magic link or guest. Confirm session cookie is set and sidebar loads.
+2. **Session creation** — Click "New Chat". Verify a new session appears in the sidebar. Check browser network tab: `POST /api/sessions` returns 201.
+3. **Chat streaming** — Send a message. Verify the response streams token-by-token without freezing. Check network: `POST /api/chat/openai` with `session_id` returns SSE stream.
+4. **Chat history** — Refresh the page, reopen the chat. Verify previous messages reload correctly from `GET /api/sessions/:id/messages`.
+5. **Session title** — After the first message, verify the sidebar shows an auto-derived title (not "Untitled"). Check network: `PATCH /api/sessions/:id`.
+6. **Delete chat** — Click the delete button on a sidebar chat. Confirm the deletion dialog appears, click Continue. Verify the chat disappears and `DELETE /api/chat?id=` returns 200.
+7. **Lead runs** — If lead runs exist, verify the "Lead Runs" sidebar section shows entries with summary, count, and a working "Download" link.
+8. **JWT auto-refresh** — (Advanced) Invalidate the JWT by waiting or manually clearing it, then send a chat message. Verify the request succeeds without a 401 error reaching the user (the proxy retries with a fresh token).

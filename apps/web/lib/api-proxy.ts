@@ -102,12 +102,26 @@ function getCachedJwt(email: string): string | null {
   return entry.token;
 }
 
+/** Force-clear the cached JWT for a given email so the next call mints fresh. */
+function invalidateJwt(email: string): void {
+  jwtCache.delete(email);
+}
+
 export async function getAuthenticatedJwt(): Promise<string> {
   const session = await auth();
   const email = session?.user?.email;
   if (!email) throw new Error("Not authenticated");
 
   return getCachedJwt(email) ?? (await mintJwt(email));
+}
+
+/** Re-mint a fresh JWT (used after a 401 to retry). */
+async function refreshJwt(): Promise<string> {
+  const session = await auth();
+  const email = session?.user?.email;
+  if (!email) throw new Error("Not authenticated");
+  invalidateJwt(email);
+  return mintJwt(email);
 }
 
 /**
@@ -144,42 +158,64 @@ export async function proxyToBackend(
     headers?: Record<string, string>;
   } = {}
 ): Promise<Response> {
-  const jwt = await getAuthenticatedJwt();
   const url = `${getApiBaseUrl()}${path}`;
 
-  const headers: Record<string, string> = {
-    Authorization: `Bearer ${jwt}`,
-    ...(opts.headers ?? {}),
+  const doFetch = async (jwt: string) => {
+    const headers: Record<string, string> = {
+      Authorization: `Bearer ${jwt}`,
+      ...(opts.headers ?? {}),
+    };
+
+    let bodyStr: string | undefined;
+    if (opts.body !== undefined) {
+      headers["Content-Type"] = "application/json";
+      bodyStr = JSON.stringify(opts.body);
+    }
+
+    return fetch(url, {
+      method: opts.method ?? "GET",
+      headers,
+      body: bodyStr,
+    });
   };
 
-  let bodyStr: string | undefined;
-  if (opts.body !== undefined) {
-    headers["Content-Type"] = "application/json";
-    bodyStr = JSON.stringify(opts.body);
+  let jwt = await getAuthenticatedJwt();
+  let res = await doFetch(jwt);
+
+  // Auto-retry once on 401: refresh JWT and retry
+  if (res.status === 401) {
+    jwt = await refreshJwt();
+    res = await doFetch(jwt);
   }
 
-  return fetch(url, {
-    method: opts.method ?? "GET",
-    headers,
-    body: bodyStr,
-  });
+  return res;
 }
 
 export async function proxyStreamingToBackend(
   path: string,
   body: unknown
 ): Promise<Response> {
-  const jwt = await getAuthenticatedJwt();
   const url = `${getApiBaseUrl()}${path}`;
+  const bodyStr = JSON.stringify(body);
 
-  const upstream = await fetch(url, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${jwt}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(body),
-  });
+  const doFetch = async (jwt: string) =>
+    fetch(url, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${jwt}`,
+        "Content-Type": "application/json",
+      },
+      body: bodyStr,
+    });
+
+  let jwt = await getAuthenticatedJwt();
+  let upstream = await doFetch(jwt);
+
+  // Auto-retry once on 401: refresh JWT and retry
+  if (upstream.status === 401) {
+    jwt = await refreshJwt();
+    upstream = await doFetch(jwt);
+  }
 
   if (!upstream.ok) {
     const text = await upstream.text();
