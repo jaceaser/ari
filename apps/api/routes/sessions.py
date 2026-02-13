@@ -514,7 +514,7 @@ async def send_message(session_id: str):
                 model=AZURE_OPENAI_DEPLOYMENT,
                 messages=[],
                 stream=True,
-                max_tokens=2048,
+                max_tokens=16384,
             )
 
             client = get_azure_client()
