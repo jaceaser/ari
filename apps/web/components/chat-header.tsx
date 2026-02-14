@@ -42,7 +42,7 @@ function PureChatHeader({
 
       {isReadonly && (
         <Badge variant="secondary" className="text-xs">
-          Read-only
+          Sealed
         </Badge>
       )}
 

@@ -92,8 +92,8 @@ const PureChatItem = ({
       ) : (
         <SidebarMenuButton asChild isActive={isActive}>
           <Link href={`/chat/${chat.id}`} onClick={() => setOpenMobile(false)}>
-            <span className="truncate">{chat.title}</span>
-            {(chat as any).status === "sealed" && (
+            <span className="truncate">{chat.title || "Untitled"}</span>
+            {chat.status === "sealed" && (
               <Badge
                 variant="outline"
                 className="ml-1.5 shrink-0 px-1 py-0 text-[10px]"
@@ -185,7 +185,7 @@ export const ChatItem = memo(PureChatItem, (prevProps, nextProps) => {
   if (prevProps.chat.title !== nextProps.chat.title) {
     return false;
   }
-  if ((prevProps.chat as any).status !== (nextProps.chat as any).status) {
+  if (prevProps.chat.status !== nextProps.chat.status) {
     return false;
   }
   return true;

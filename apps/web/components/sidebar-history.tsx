@@ -246,7 +246,7 @@ export function SidebarHistory({ user }: { user: User | undefined }) {
                   .flatMap(
                     (paginatedChatHistory) => paginatedChatHistory.chats
                   )
-                  .filter((chat) => chat.title && chat.title.trim() !== "");
+                  .filter((chat) => (chat.title && chat.title.trim() !== "") || chat.status === "sealed");
 
                 const groupedChats = groupChatsByDate(chatsFromHistory);
 

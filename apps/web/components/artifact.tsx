@@ -331,22 +331,24 @@ function PureArtifact({
                   votes={votes}
                 />
 
-                <div className="relative flex w-full flex-row items-end gap-2 px-4 pb-4">
-                  <MultimodalInput
-                    attachments={attachments}
-                    chatId={chatId}
-                    className="bg-background dark:bg-muted"
-                    input={input}
-                    messages={messages}
-                    selectedVisibilityType={selectedVisibilityType}
-                    sendMessage={sendMessage}
-                    setAttachments={setAttachments}
-                    setInput={setInput}
-                    setMessages={setMessages}
-                    status={status}
-                    stop={stop}
-                  />
-                </div>
+                {!isReadonly && (
+                  <div className="relative flex w-full flex-row items-end gap-2 px-4 pb-4">
+                    <MultimodalInput
+                      attachments={attachments}
+                      chatId={chatId}
+                      className="bg-background dark:bg-muted"
+                      input={input}
+                      messages={messages}
+                      selectedVisibilityType={selectedVisibilityType}
+                      sendMessage={sendMessage}
+                      setAttachments={setAttachments}
+                      setInput={setInput}
+                      setMessages={setMessages}
+                      status={status}
+                      stop={stop}
+                    />
+                  </div>
+                )}
               </div>
             </motion.div>
           )}
