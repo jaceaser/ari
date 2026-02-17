@@ -136,10 +136,9 @@ export class ThrottledDeltaWriter {
 /**
  * Pipe an OpenAI-compatible SSE body into a UIMessageStream writer.
  *
- * Each text-delta token is written immediately — the client-side
- * `experimental_throttle` on `useChat` handles batching React state
- * updates to avoid excessive re-renders while preserving the typewriter
- * streaming feel.
+ * Uses ThrottledDeltaWriter to batch text-delta events at FLUSH_INTERVAL_MS
+ * intervals, reducing the number of writes reaching the client.
+ * Skips tool_calls and meta-only chunks; deduplicates consecutive identical deltas.
  */
 export async function writeOpenAiSseToUiStream(
   upstreamBody: ReadableStream<Uint8Array>,
@@ -149,6 +148,8 @@ export async function writeOpenAiSseToUiStream(
 ): Promise<void> {
   const textId = generateId();
   let finishReason: FinishReason;
+  let lastDelta = "";
+  const throttled = new ThrottledDeltaWriter(writer, textId);
 
   writer.write({ type: "start" });
   writer.write({ type: "start-step" });
@@ -158,6 +159,7 @@ export async function writeOpenAiSseToUiStream(
     for await (const chunk of parseOpenAISse(upstreamBody)) {
       if (chunk.error?.message) {
         finishReason = "error";
+        throttled.finalize();
         writer.write({ type: "error", errorText: chunk.error.message });
         break;
       }
@@ -165,20 +167,29 @@ export async function writeOpenAiSseToUiStream(
       const choice = chunk.choices?.[0];
       if (!choice) continue;
 
+      // Skip tool_calls-only chunks (no text content)
+      const delta = choice.delta;
+      if (!delta) continue;
+      if ((delta as any).tool_calls && !delta.content) continue;
+
       const mappedReason = mapFinishReason(choice.finish_reason);
       if (mappedReason) {
         finishReason = mappedReason;
       }
 
-      const delta = choice.delta?.content;
-      if (typeof delta === "string" && delta.length > 0) {
-        writer.write({ type: "text-delta", id: textId, delta });
+      const text = delta.content;
+      if (typeof text === "string" && text.length > 0) {
+        // Deduplicate consecutive identical deltas
+        if (text === lastDelta && text.length < 4) continue;
+        lastDelta = text;
+        throttled.push(text);
       }
     }
   } catch (error) {
     finishReason = "error";
     writer.write({ type: "error", errorText: getErrorMessage(error) });
   } finally {
+    throttled.finalize();
     writer.write({ type: "text-end", id: textId });
     writer.write({ type: "finish-step" });
     writer.write({ type: "finish", finishReason });

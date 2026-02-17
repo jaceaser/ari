@@ -302,3 +302,15 @@ Error response:
 6. **Delete chat** — Click the delete button on a sidebar chat. Confirm the deletion dialog appears, click Continue. Verify the chat disappears and `DELETE /api/chat?id=` returns 200.
 7. **Lead runs** — If lead runs exist, verify the "Lead Runs" sidebar section shows entries with summary, count, and a working "Download" link.
 8. **JWT auto-refresh** — (Advanced) Invalidate the JWT by waiting or manually clearing it, then send a chat message. Verify the request succeeds without a 401 error reaching the user (the proxy retries with a fresh token).
+
+---
+
+## PR7 Manual QA Checklist — Streaming Smoothness
+
+1. **Typewriter feel** — Send a message. Response text should appear with a smooth typewriter animation (not all-at-once, not choppy per-token). There should be a brief buffer (~0.5s) before text starts appearing.
+2. **No flickering** — During streaming, the message bubble should not flash, resize erratically, or show layout shifts.
+3. **Markdown after completion** — While streaming, text renders progressively. After the stream finishes, markdown formatting (bold, headings, lists, code blocks) should render correctly.
+4. **Autoscroll follows** — When at the bottom of the chat, new streamed text should auto-scroll to keep the latest content visible.
+5. **Jump to bottom** — Scroll up during a response. A "Jump to bottom" button should appear. Clicking it should smoothly scroll to the latest content.
+6. **No scroll hijack** — While reading earlier messages (scrolled up), new streaming content should NOT force-scroll you down.
+7. **Long response** — Ask for a detailed response (e.g., "explain quantum computing in detail"). Verify the entire response renders without truncation and scrolling works throughout.
