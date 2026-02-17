@@ -97,6 +97,55 @@ pnpm dev
 | `API_JWT_SECRET` | Shared JWT secret (must match backend) |
 | `AUTH_SECRET` | NextAuth session secret |
 
+#### Frontend (optional)
+
+| Variable | Description |
+|----------|-------------|
+| `COOKIE_DOMAIN` | Cookie domain for cross-subdomain auth (e.g. `.reilabs.ai`) |
+
+---
+
+## Azure App Service Deployment
+
+### Architecture
+
+Three App Services (Linux, B1/B2 tier):
+
+| Service | Runtime | Port | Startup Command |
+|---------|---------|------|----------------|
+| `ari-api` | Python 3.11 | 8000 | `bash startup.sh` |
+| `ari-mcp` | Python 3.11 | 8100 | `bash startup.sh` |
+| `ari-web` | Node 20 | 3000 | `bash startup.sh` |
+
+### Deploy Steps
+
+1. **API backend** (`apps/api`):
+   - Create Python 3.11 App Service
+   - Set startup command: `bash startup.sh`
+   - Configure env vars (see Backend tables above)
+   - Set `ALLOWED_ORIGINS=https://app.reilabs.ai`
+   - Set `MCP_SERVER_URL` to internal MCP service URL
+
+2. **MCP server** (`apps/mcp`):
+   - Create Python 3.11 App Service
+   - Set startup command: `bash startup.sh`
+   - Typically internal-only (not public-facing)
+
+3. **Web frontend** (`apps/web`):
+   - Build locally: `cd apps/web && pnpm build`
+   - Deploy the `.next/standalone` directory
+   - Copy `public/` and `.next/static` into the standalone dir
+   - Set startup command: `bash startup.sh`
+   - Set `NEXT_PUBLIC_API_URL=https://api.reilabs.ai`
+   - Set `COOKIE_DOMAIN=.reilabs.ai` for cross-subdomain cookies
+
+### Custom Domain Setup
+
+- `app.reilabs.ai` → Web frontend App Service
+- `api.reilabs.ai` → API backend App Service
+- Set `COOKIE_DOMAIN=.reilabs.ai` so NextAuth cookies work across both subdomains
+- Set `ALLOWED_ORIGINS=https://app.reilabs.ai` on the API
+
 ### Startup Validation
 
 The backend validates required env vars at startup and fails fast with a clear error if `AZURE_OPENAI_KEY` or `AZURE_OPENAI_ENDPOINT` are missing.
