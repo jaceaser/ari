@@ -314,3 +314,14 @@ Error response:
 5. **Jump to bottom** — Scroll up during a response. A "Jump to bottom" button should appear. Clicking it should smoothly scroll to the latest content.
 6. **No scroll hijack** — While reading earlier messages (scrolled up), new streaming content should NOT force-scroll you down.
 7. **Long response** — Ask for a detailed response (e.g., "explain quantum computing in detail"). Verify the entire response renders without truncation and scrolling works throughout.
+
+---
+
+## PR8 Manual QA Checklist — MVP Hardening
+
+1. **TypeScript zero errors** — Run `cd apps/web && npx tsc --noEmit`. Verify zero errors.
+2. **Backend startup validation** — Remove `AZURE_OPENAI_KEY` from `.env.local` and start the backend. Verify it fails immediately with a clear error message listing the missing var.
+3. **Rate limiting behind proxy** — Send requests through a reverse proxy. Verify rate limiting uses the client IP from `X-Forwarded-For`, not the proxy IP.
+4. **Sealed session readonly** — Open a sealed session URL. Verify: input is hidden, "Sealed" badge shows, "Start New Chat" link works.
+5. **E2e tests pass** — Run `pnpm exec playwright test`. Verify all streaming, sealed session, and lead run tests pass.
+6. **RUNBOOK accuracy** — Follow `docs/RUNBOOK.md` on a clean machine. Verify local setup works end-to-end.
