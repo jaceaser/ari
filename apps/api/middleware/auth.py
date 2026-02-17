@@ -70,8 +70,10 @@ async def jwt_auth_middleware() -> Response | None:
     if request.path in SKIP_AUTH_PATHS or request.method == "OPTIONS":
         return None
 
-    # /auth/exchange is special — it requires session cookie, not JWT
+    # Public auth endpoints — no JWT required
     if request.path == "/auth/exchange":
+        return None
+    if request.path.startswith("/auth/magic-link/"):
         return None
 
     secret, algorithm = _get_jwt_config()

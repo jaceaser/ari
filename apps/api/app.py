@@ -97,12 +97,14 @@ app.secret_key = os.getenv("SESSION_SECRET", "dev-secret-change-me")
 # Register Phase 2 blueprints
 from routes import auth_bp, sessions_bp, lead_runs_bp, documents_bp  # noqa: E402
 from routes.frontend_data import frontend_data_bp  # noqa: E402
+from routes.magic_link import magic_link_bp  # noqa: E402
 
 app.register_blueprint(auth_bp)
 app.register_blueprint(sessions_bp)
 app.register_blueprint(lead_runs_bp)
 app.register_blueprint(documents_bp)
 app.register_blueprint(frontend_data_bp)
+app.register_blueprint(magic_link_bp)
 
 # ============================================================================
 # Configuration
@@ -1288,6 +1290,8 @@ async def root():
             "GET /sessions/<id>/messages",
             "GET /lead-runs",
             "GET /lead-runs/<id>",
+            "POST /auth/magic-link/send",
+            "POST /auth/magic-link/verify",
             "GET /health",
         ],
     }, 200

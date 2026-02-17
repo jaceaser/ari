@@ -55,7 +55,6 @@ export const {
       }
     : {}),
   providers: [
-    // Password auth removed — magic link auth will be added in PR9c.
     Credentials({
       id: "guest",
       credentials: {},
@@ -67,6 +66,45 @@ export const {
           email: guestEmail,
           type: "guest",
         };
+      },
+    }),
+    Credentials({
+      id: "magic-link",
+      credentials: {
+        token: { type: "text" },
+      },
+      async authorize(credentials) {
+        const token = credentials?.token as string | undefined;
+        if (!token) return null;
+
+        const apiUrl = (
+          process.env.API_BASE_URL ||
+          process.env.NEXT_PUBLIC_API_URL ||
+          ""
+        ).replace(/\/+$/, "");
+        if (!apiUrl) return null;
+
+        try {
+          const res = await fetch(`${apiUrl}/auth/magic-link/verify`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ token }),
+          });
+
+          if (!res.ok) return null;
+
+          const data = await res.json();
+          const user = data.user;
+          if (!user?.id || !user?.email) return null;
+
+          return {
+            id: user.id,
+            email: user.email,
+            type: "regular" as const,
+          };
+        } catch {
+          return null;
+        }
       },
     }),
   ],

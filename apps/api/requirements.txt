@@ -12,3 +12,4 @@ markdown>=3.6
 pytz>=2024.0
 certifi>=2024.0.0
 hypercorn>=0.17.0
+azure-communication-email>=1.0.0

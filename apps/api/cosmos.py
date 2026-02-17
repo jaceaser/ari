@@ -3,7 +3,7 @@ Azure Cosmos DB client for API persistence layer.
 
 Container: 'sessions' in database 'db_conversation_history'
 Partition key: userId
-Document types: session, message, lead_run, document, suggestion, vote
+Document types: session, message, lead_run, document, suggestion, vote, magic_token
 """
 
 from __future__ import annotations
@@ -615,3 +615,49 @@ class SessionsCosmosClient:
             ):
                 results.append(item)
         return results
+
+    # ── Magic Tokens ──
+
+    async def store_magic_token(
+        self, email: str, token: str, expires_at: str
+    ) -> dict[str, Any]:
+        """Store a magic link token. Partition: userId='system'."""
+        doc = {
+            "id": token,
+            "type": "magic_token",
+            "userId": "system",
+            "email": email,
+            "expiresAt": expires_at,
+            "createdAt": datetime.now(timezone.utc).isoformat(),
+        }
+        async with self._client() as client:
+            container = await self._container(client)
+            await container.upsert_item(doc)
+        return doc
+
+    async def verify_magic_token(self, token: str) -> Optional[dict[str, Any]]:
+        """Look up a magic token. Returns the doc if found and not expired."""
+        async with self._client() as client:
+            container = await self._container(client)
+            try:
+                item = await container.read_item(item=token, partition_key="system")
+                if item.get("type") != "magic_token":
+                    return None
+                # Check expiry
+                expires_at = item.get("expiresAt", "")
+                if expires_at and datetime.fromisoformat(expires_at) < datetime.now(timezone.utc):
+                    # Expired — clean up
+                    await container.delete_item(item=token, partition_key="system")
+                    return None
+                return item
+            except Exception:
+                return None
+
+    async def delete_magic_token(self, token: str) -> None:
+        """Delete a magic token (single-use)."""
+        async with self._client() as client:
+            container = await self._container(client)
+            try:
+                await container.delete_item(item=token, partition_key="system")
+            except Exception:
+                pass
