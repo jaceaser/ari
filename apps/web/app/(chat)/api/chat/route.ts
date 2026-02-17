@@ -25,6 +25,7 @@ import {
   updateChatTitleById,
   updateMessage,
 } from "@/lib/api-client";
+import { checkSubscription } from "@/lib/billing";
 import type { DBMessage } from "@/lib/db/schema";
 import { ChatSDKError } from "@/lib/errors";
 import type { ChatMessage } from "@/lib/types";
@@ -56,6 +57,14 @@ export async function POST(request: Request) {
     }
 
     const userType: UserType = session.user.type;
+
+    // Check subscription for regular users (guests use message-count limits)
+    if (userType === "regular") {
+      const subError = await checkSubscription();
+      if (subError) {
+        return subError;
+      }
+    }
 
     const messageCount = await getMessageCountByUserId({
       id: session.user.id,

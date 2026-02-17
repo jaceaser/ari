@@ -661,3 +661,69 @@ class SessionsCosmosClient:
                 await container.delete_item(item=token, partition_key="system")
             except Exception:
                 pass
+
+    # ── Subscriptions (Stripe) ──
+
+    async def update_user_subscription(
+        self, user_id: str, stripe_data: dict[str, Any]
+    ) -> None:
+        """Update a user document with Stripe subscription data."""
+        async with self._client() as client:
+            container = await self._container(client)
+            # Find user doc
+            query = "SELECT * FROM c WHERE c.type = 'user' AND c.userId = @uid"
+            params = [{"name": "@uid", "value": user_id}]
+            items = []
+            async for item in container.query_items(
+                query=query, parameters=params, partition_key=user_id
+            ):
+                items.append(item)
+
+            if items:
+                doc = items[0]
+                doc.update(stripe_data)
+                await container.upsert_item(doc)
+            else:
+                logger.warning("No user doc found for %s to update subscription", user_id)
+
+    async def get_user_subscription(self, user_id: str) -> Optional[dict[str, Any]]:
+        """Get subscription info from a user document."""
+        async with self._client() as client:
+            container = await self._container(client)
+            query = "SELECT * FROM c WHERE c.type = 'user' AND c.userId = @uid"
+            params = [{"name": "@uid", "value": user_id}]
+            async for item in container.query_items(
+                query=query, parameters=params, partition_key=user_id
+            ):
+                return {
+                    "subscription_status": item.get("subscription_status"),
+                    "subscription_id": item.get("subscription_id"),
+                    "stripe_customer_id": item.get("stripe_customer_id"),
+                    "plan": item.get("plan"),
+                    "subscription_expires_at": item.get("subscription_expires_at"),
+                }
+            return None
+
+    async def find_user_by_email(self, email: str) -> Optional[dict[str, Any]]:
+        """Find a user document by email (cross-partition query)."""
+        async with self._client() as client:
+            container = await self._container(client)
+            query = "SELECT * FROM c WHERE c.type = 'user' AND c.email = @email"
+            params = [{"name": "@email", "value": email}]
+            async for item in container.query_items(
+                query=query, parameters=params, enable_cross_partition_query=True
+            ):
+                return item
+            return None
+
+    async def find_user_by_stripe_customer(self, customer_id: str) -> Optional[dict[str, Any]]:
+        """Find a user document by Stripe customer ID (cross-partition query)."""
+        async with self._client() as client:
+            container = await self._container(client)
+            query = "SELECT * FROM c WHERE c.type = 'user' AND c.stripe_customer_id = @cid"
+            params = [{"name": "@cid", "value": customer_id}]
+            async for item in container.query_items(
+                query=query, parameters=params, enable_cross_partition_query=True
+            ):
+                return item
+            return None

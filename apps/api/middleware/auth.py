@@ -13,7 +13,7 @@ from quart import Response, jsonify, request
 
 logger = logging.getLogger("api.auth")
 
-SKIP_AUTH_PATHS = frozenset({"/", "/health"})
+SKIP_AUTH_PATHS = frozenset({"/", "/health", "/webhooks/stripe"})
 
 # ── API Key Auth (existing) ──
 

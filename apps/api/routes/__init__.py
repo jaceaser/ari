@@ -18,3 +18,7 @@ from .frontend_data import frontend_data_bp  # noqa: F401, E402
 
 # Magic link authentication
 from .magic_link import magic_link_bp  # noqa: F401, E402
+
+# Stripe + billing
+from .stripe_webhook import stripe_webhook_bp  # noqa: F401, E402
+from .billing import billing_bp  # noqa: F401, E402
