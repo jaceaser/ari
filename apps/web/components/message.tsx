@@ -5,6 +5,7 @@ import type { Vote } from "@/lib/db/schema";
 import { useStreamingSmooth } from "@/hooks/use-streaming-smooth";
 import type { ChatMessage } from "@/lib/types";
 import { cn, sanitizeText } from "@/lib/utils";
+import type { ArtifactKind } from "./artifact";
 import { useDataStream } from "./data-stream-provider";
 import { DocumentToolResult } from "./document";
 import { DocumentPreview } from "./document-preview";
@@ -351,7 +352,7 @@ const PurePreviewMessage = ({
                           ) : (
                             <DocumentToolResult
                               isReadonly={isReadonly}
-                              result={part.output}
+                              result={{ ...part.output, kind: part.output.kind as ArtifactKind }}
                               type="request-suggestions"
                             />
                           )

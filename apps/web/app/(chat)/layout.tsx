@@ -31,6 +31,7 @@ async function SidebarWrapper({ children }: { children: React.ReactNode }) {
     id: "demo-user",
     email: "demo@example.com",
     name: "Demo User",
+    type: "guest" as const,
   };
 
   return (

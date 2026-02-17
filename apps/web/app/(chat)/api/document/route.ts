@@ -119,7 +119,7 @@ export async function DELETE(request: Request) {
 
   const documentsDeleted = await deleteDocumentsByIdAfterTimestamp({
     id,
-    timestamp: new Date(timestamp),
+    timestamp: new Date(timestamp).getTime(),
   });
 
   return Response.json(documentsDeleted, { status: 200 });

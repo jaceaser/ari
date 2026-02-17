@@ -45,7 +45,7 @@ const PureChatItem = ({
 }) => {
   const { visibilityType, setVisibilityType } = useChatVisibility({
     chatId: chat.id,
-    initialVisibilityType: chat.visibility,
+    initialVisibilityType: chat.visibility as "private" | "public",
   });
 
   const [isEditing, setIsEditing] = useState(false);

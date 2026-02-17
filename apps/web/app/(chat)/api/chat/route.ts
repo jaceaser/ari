@@ -124,9 +124,9 @@ export async function POST(request: Request) {
             chatId: id,
             id: message.id,
             role: "user",
-            parts: message.parts,
-            attachments: [],
-            createdAt: new Date(),
+            parts: JSON.stringify(message.parts),
+            attachments: JSON.stringify([]),
+            createdAt: Date.now(),
           },
         ],
       });
@@ -189,7 +189,7 @@ export async function POST(request: Request) {
             if (existingMsg) {
               await updateMessage({
                 id: finishedMsg.id,
-                parts: finishedMsg.parts,
+                parts: JSON.stringify(finishedMsg.parts),
               });
             } else {
               await saveMessages({
@@ -197,9 +197,9 @@ export async function POST(request: Request) {
                   {
                     id: finishedMsg.id,
                     role: finishedMsg.role,
-                    parts: finishedMsg.parts,
-                    createdAt: new Date(),
-                    attachments: [],
+                    parts: JSON.stringify(finishedMsg.parts),
+                    createdAt: Date.now(),
+                    attachments: JSON.stringify([]),
                     chatId: id,
                   },
                 ],
@@ -211,9 +211,9 @@ export async function POST(request: Request) {
             messages: finishedMessages.map((currentMessage) => ({
               id: currentMessage.id,
               role: currentMessage.role,
-              parts: currentMessage.parts,
-              createdAt: new Date(),
-              attachments: [],
+              parts: JSON.stringify(currentMessage.parts),
+              createdAt: Date.now(),
+              attachments: JSON.stringify([]),
               chatId: id,
             })),
           });

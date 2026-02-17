@@ -8,6 +8,7 @@ import { isExternalBackend, proxyToBackend } from "@/lib/api-proxy";
 import { getChatById, getMessagesByChatId } from "@/lib/db/queries";
 import type { ChatMessage } from "@/lib/types";
 import { convertToUIMessages } from "@/lib/utils";
+import type { VisibilityType } from "@/components/visibility-selector";
 
 export default function Page(props: { params: Promise<{ id: string }> }) {
   return (
@@ -111,7 +112,7 @@ async function ChatPage({ params }: { params: Promise<{ id: string }> }) {
         autoResume={true}
         id={chat.id}
         initialMessages={uiMessages}
-        initialVisibilityType={chat.visibility}
+        initialVisibilityType={chat.visibility as VisibilityType}
         isReadonly={session?.user?.id !== chat.userId}
       />
       <DataStreamHandler />

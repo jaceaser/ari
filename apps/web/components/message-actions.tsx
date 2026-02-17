@@ -117,7 +117,7 @@ export function PureMessageActions({
 
       <Action
         data-testid="message-upvote"
-        disabled={vote?.isUpvoted}
+        disabled={vote?.isUpvoted === 1}
         onClick={() => {
           const upvote = fetch("/api/vote", {
             method: "PATCH",
@@ -147,7 +147,7 @@ export function PureMessageActions({
                     {
                       chatId,
                       messageId: message.id,
-                      isUpvoted: true,
+                      isUpvoted: 1,
                     },
                   ];
                 },
@@ -196,7 +196,7 @@ export function PureMessageActions({
                     {
                       chatId,
                       messageId: message.id,
-                      isUpvoted: false,
+                      isUpvoted: 0,
                     },
                   ];
                 },
