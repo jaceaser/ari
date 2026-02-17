@@ -96,11 +96,13 @@ app.secret_key = os.getenv("SESSION_SECRET", "dev-secret-change-me")
 
 # Register Phase 2 blueprints
 from routes import auth_bp, sessions_bp, lead_runs_bp, documents_bp  # noqa: E402
+from routes.frontend_data import frontend_data_bp  # noqa: E402
 
 app.register_blueprint(auth_bp)
 app.register_blueprint(sessions_bp)
 app.register_blueprint(lead_runs_bp)
 app.register_blueprint(documents_bp)
+app.register_blueprint(frontend_data_bp)
 
 # ============================================================================
 # Configuration
@@ -438,7 +440,7 @@ def _add_security_headers(response: Response) -> Response:
 
 
 # Paths that use JWT auth instead of API key auth
-_JWT_AUTH_PREFIXES = ("/sessions", "/lead-runs", "/auth/", "/documents")
+_JWT_AUTH_PREFIXES = ("/sessions", "/lead-runs", "/auth/", "/documents", "/data")
 
 
 @app.before_request

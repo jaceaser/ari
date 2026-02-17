@@ -12,3 +12,6 @@ from . import auth  # noqa: F401, E402
 from . import sessions  # noqa: F401, E402
 from . import lead_runs  # noqa: F401, E402
 from . import documents  # noqa: F401, E402
+
+# Frontend data persistence (documents, suggestions, votes, messages)
+from .frontend_data import frontend_data_bp  # noqa: F401, E402

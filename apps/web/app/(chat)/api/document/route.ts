@@ -4,7 +4,7 @@ import {
   deleteDocumentsByIdAfterTimestamp,
   getDocumentsById,
   saveDocument,
-} from "@/lib/db/queries";
+} from "@/lib/api-client";
 import { ChatSDKError } from "@/lib/errors";
 
 export async function GET(request: Request) {

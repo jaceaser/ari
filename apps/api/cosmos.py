@@ -3,7 +3,7 @@ Azure Cosmos DB client for API persistence layer.
 
 Container: 'sessions' in database 'db_conversation_history'
 Partition key: userId
-Document types: session, message, lead_run
+Document types: session, message, lead_run, document, suggestion, vote
 """
 
 from __future__ import annotations
@@ -345,3 +345,273 @@ class SessionsCosmosClient:
                 return item
             except Exception:
                 return None
+
+    # ── Frontend data: Messages (extended) ──
+
+    async def save_messages(
+        self, user_id: str, session_id: str, messages: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        """Batch-save messages (parts-based format from frontend)."""
+        saved = []
+        async with self._client() as client:
+            container = await self._container(client)
+            for msg in messages:
+                doc = {
+                    "id": msg.get("id") or str(uuid.uuid4()),
+                    "type": "message",
+                    "userId": user_id,
+                    "sessionId": session_id,
+                    "role": msg.get("role", "user"),
+                    "content": msg.get("parts", ""),
+                    "parts": msg.get("parts", ""),
+                    "attachments": msg.get("attachments", "[]"),
+                    "createdAt": msg.get("createdAt") or datetime.now(timezone.utc).isoformat(),
+                }
+                await container.upsert_item(doc)
+                saved.append(doc)
+        return saved
+
+    async def get_message_by_id(self, user_id: str, message_id: str) -> Optional[dict[str, Any]]:
+        """Get a single message by ID."""
+        query = "SELECT * FROM c WHERE c.type = 'message' AND c.id = @id AND c.userId = @userId"
+        params = [
+            {"name": "@id", "value": message_id},
+            {"name": "@userId", "value": user_id},
+        ]
+        async with self._client() as client:
+            container = await self._container(client)
+            async for item in container.query_items(
+                query=query, parameters=params, partition_key=user_id
+            ):
+                return item
+        return None
+
+    async def update_message(
+        self, user_id: str, message_id: str, updates: dict[str, Any]
+    ) -> Optional[dict[str, Any]]:
+        """Update a message's fields (e.g. parts)."""
+        msg = await self.get_message_by_id(user_id, message_id)
+        if not msg:
+            return None
+        msg.update(updates)
+        async with self._client() as client:
+            container = await self._container(client)
+            await container.upsert_item(msg)
+        return msg
+
+    async def delete_messages_after_timestamp(
+        self, user_id: str, session_id: str, timestamp: Any
+    ) -> int:
+        """Delete messages in a session created at or after the given timestamp."""
+        query = (
+            "SELECT c.id FROM c WHERE c.type = 'message' "
+            "AND c.sessionId = @sessionId AND c.userId = @userId "
+            "AND c.createdAt >= @ts"
+        )
+        params = [
+            {"name": "@sessionId", "value": session_id},
+            {"name": "@userId", "value": user_id},
+            {"name": "@ts", "value": str(timestamp) if isinstance(timestamp, (int, float)) else timestamp},
+        ]
+        deleted = 0
+        async with self._client() as client:
+            container = await self._container(client)
+            items = [
+                item async for item in container.query_items(
+                    query=query, parameters=params, partition_key=user_id
+                )
+            ]
+            for item in items:
+                try:
+                    await container.delete_item(item=item["id"], partition_key=user_id)
+                    deleted += 1
+                except Exception:
+                    pass
+        return deleted
+
+    async def get_message_count(
+        self, user_id: str, since_hours: int = 24
+    ) -> int:
+        """Count user messages in the last N hours."""
+        cutoff = datetime.now(timezone.utc).timestamp() - (since_hours * 3600)
+        cutoff_iso = datetime.fromtimestamp(cutoff, tz=timezone.utc).isoformat()
+        query = (
+            "SELECT VALUE COUNT(1) FROM c WHERE c.type = 'message' "
+            "AND c.userId = @userId AND c.role = 'user' "
+            "AND c.createdAt >= @cutoff"
+        )
+        params = [
+            {"name": "@userId", "value": user_id},
+            {"name": "@cutoff", "value": cutoff_iso},
+        ]
+        async with self._client() as client:
+            container = await self._container(client)
+            async for item in container.query_items(
+                query=query, parameters=params, partition_key=user_id
+            ):
+                return item
+        return 0
+
+    # ── Documents ──
+
+    async def save_document(
+        self, user_id: str, doc_id: str, title: str, kind: str,
+        content: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """Save a document version."""
+        now = datetime.now(timezone.utc).isoformat()
+        # Use composite key: doc_id + createdAt for versioning
+        cosmos_id = f"doc:{doc_id}:{now}"
+        doc = {
+            "id": cosmos_id,
+            "type": "document",
+            "documentId": doc_id,
+            "userId": user_id,
+            "title": title,
+            "kind": kind,
+            "content": content,
+            "createdAt": now,
+        }
+        async with self._client() as client:
+            container = await self._container(client)
+            await container.upsert_item(doc)
+        return doc
+
+    async def get_documents_by_id(self, user_id: str, doc_id: str) -> list[dict[str, Any]]:
+        """Get all versions of a document, ordered by createdAt ASC."""
+        query = (
+            "SELECT * FROM c WHERE c.type = 'document' AND c.documentId = @docId "
+            "AND c.userId = @userId ORDER BY c.createdAt ASC"
+        )
+        params = [
+            {"name": "@docId", "value": doc_id},
+            {"name": "@userId", "value": user_id},
+        ]
+        results = []
+        async with self._client() as client:
+            container = await self._container(client)
+            async for item in container.query_items(
+                query=query, parameters=params, partition_key=user_id
+            ):
+                results.append(item)
+        return results
+
+    async def get_document_by_id(self, user_id: str, doc_id: str) -> Optional[dict[str, Any]]:
+        """Get the latest version of a document."""
+        docs = await self.get_documents_by_id(user_id, doc_id)
+        return docs[-1] if docs else None
+
+    async def delete_documents_after_timestamp(
+        self, user_id: str, doc_id: str, timestamp: Any
+    ) -> list[dict[str, Any]]:
+        """Delete document versions created after the given timestamp."""
+        query = (
+            "SELECT * FROM c WHERE c.type = 'document' AND c.documentId = @docId "
+            "AND c.userId = @userId AND c.createdAt > @ts"
+        )
+        params = [
+            {"name": "@docId", "value": doc_id},
+            {"name": "@userId", "value": user_id},
+            {"name": "@ts", "value": str(timestamp) if isinstance(timestamp, (int, float)) else timestamp},
+        ]
+        deleted = []
+        async with self._client() as client:
+            container = await self._container(client)
+            items = [
+                item async for item in container.query_items(
+                    query=query, parameters=params, partition_key=user_id
+                )
+            ]
+            for item in items:
+                try:
+                    await container.delete_item(item=item["id"], partition_key=user_id)
+                    deleted.append(item)
+                except Exception:
+                    pass
+        return deleted
+
+    # ── Suggestions ──
+
+    async def save_suggestions(
+        self, user_id: str, suggestions: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        """Save suggestion documents."""
+        saved = []
+        async with self._client() as client:
+            container = await self._container(client)
+            for s in suggestions:
+                doc = {
+                    "id": s.get("id") or str(uuid.uuid4()),
+                    "type": "suggestion",
+                    "userId": user_id,
+                    "documentId": s.get("documentId"),
+                    "documentCreatedAt": s.get("documentCreatedAt"),
+                    "originalText": s.get("originalText"),
+                    "suggestedText": s.get("suggestedText"),
+                    "description": s.get("description"),
+                    "isResolved": s.get("isResolved", 0),
+                    "createdAt": s.get("createdAt") or datetime.now(timezone.utc).isoformat(),
+                }
+                await container.upsert_item(doc)
+                saved.append(doc)
+        return saved
+
+    async def get_suggestions_by_document_id(
+        self, user_id: str, document_id: str
+    ) -> list[dict[str, Any]]:
+        query = (
+            "SELECT * FROM c WHERE c.type = 'suggestion' AND c.documentId = @docId "
+            "AND c.userId = @userId"
+        )
+        params = [
+            {"name": "@docId", "value": document_id},
+            {"name": "@userId", "value": user_id},
+        ]
+        results = []
+        async with self._client() as client:
+            container = await self._container(client)
+            async for item in container.query_items(
+                query=query, parameters=params, partition_key=user_id
+            ):
+                results.append(item)
+        return results
+
+    # ── Votes ──
+
+    async def vote_message(
+        self, user_id: str, chat_id: str, message_id: str, is_upvoted: int
+    ) -> dict[str, Any]:
+        """Create or update a vote on a message."""
+        vote_id = f"vote:{chat_id}:{message_id}"
+        doc = {
+            "id": vote_id,
+            "type": "vote",
+            "userId": user_id,
+            "chatId": chat_id,
+            "messageId": message_id,
+            "isUpvoted": is_upvoted,
+        }
+        async with self._client() as client:
+            container = await self._container(client)
+            await container.upsert_item(doc)
+        return doc
+
+    async def get_votes_by_chat_id(
+        self, user_id: str, chat_id: str
+    ) -> list[dict[str, Any]]:
+        query = (
+            "SELECT * FROM c WHERE c.type = 'vote' AND c.chatId = @chatId "
+            "AND c.userId = @userId"
+        )
+        params = [
+            {"name": "@chatId", "value": chat_id},
+            {"name": "@userId", "value": user_id},
+        ]
+        results = []
+        async with self._client() as client:
+            container = await self._container(client)
+            async for item in container.query_items(
+                query=query, parameters=params, partition_key=user_id
+            ):
+                results.append(item)
+        return results

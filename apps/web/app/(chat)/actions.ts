@@ -9,7 +9,7 @@ import {
   getMessageById,
   updateChatTitleById,
   updateChatVisibilityById,
-} from "@/lib/db/queries";
+} from "@/lib/api-client";
 import { getTextFromMessage } from "@/lib/utils";
 
 export async function generateTitleFromUserMessage({

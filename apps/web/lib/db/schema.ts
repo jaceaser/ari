@@ -1,142 +1,63 @@
-import type { InferSelectModel } from "drizzle-orm";
-import {
-  foreignKey,
-  integer,
-  primaryKey,
-  sqliteTable,
-  text,
-} from "drizzle-orm/sqlite-core";
+/**
+ * Plain TypeScript types for the ARI data model.
+ * These match the shapes returned by the external API backend (Cosmos DB).
+ * SQLite/Drizzle definitions have been removed — all persistence goes through the API.
+ */
 
-export const user = sqliteTable("User", {
-  id: text("id").primaryKey(),
-  email: text("email").notNull(),
-  password: text("password"),
-});
+export interface User {
+  id: string;
+  email: string;
+  password?: string | null;
+  type?: "guest" | "regular";
+}
 
-export type User = InferSelectModel<typeof user>;
+export interface Chat {
+  id: string;
+  createdAt: number;
+  title: string;
+  userId: string;
+  visibility: string;
+  status?: string;
+}
 
-export const chat = sqliteTable("Chat", {
-  id: text("id").primaryKey(),
-  createdAt: integer("createdAt").notNull(),
-  title: text("title").notNull(),
-  userId: text("userId").notNull().references(() => user.id),
-  visibility: text("visibility").notNull().default("private"),
-});
+export interface DBMessage {
+  id: string;
+  chatId: string;
+  role: string;
+  parts: string;
+  attachments: string;
+  createdAt: number;
+}
 
-export type Chat = InferSelectModel<typeof chat> & { status?: string };
+export interface Vote {
+  chatId: string;
+  messageId: string;
+  isUpvoted: number;
+}
 
-// DEPRECATED: The following schema is deprecated and will be removed in the future.
-// Read the migration guide at https://chat-sdk.dev/docs/migration-guides/message-parts
-export const messageDeprecated = sqliteTable("Message", {
-  id: text("id").primaryKey(),
-  chatId: text("chatId").notNull().references(() => chat.id),
-  role: text("role").notNull(),
-  content: text("content").notNull(),
-  createdAt: integer("createdAt").notNull(),
-});
+export interface Document {
+  id: string;
+  createdAt: number;
+  title: string;
+  content: string | null;
+  kind: string;
+  userId: string;
+}
 
-export type MessageDeprecated = InferSelectModel<typeof messageDeprecated>;
+export interface Suggestion {
+  id: string;
+  documentId: string;
+  documentCreatedAt: number;
+  originalText: string;
+  suggestedText: string;
+  description?: string | null;
+  isResolved: number;
+  userId: string;
+  createdAt: number;
+}
 
-export const message = sqliteTable("Message_v2", {
-  id: text("id").primaryKey(),
-  chatId: text("chatId").notNull().references(() => chat.id),
-  role: text("role").notNull(),
-  parts: text("parts").notNull(),
-  attachments: text("attachments").notNull(),
-  createdAt: integer("createdAt").notNull(),
-});
-
-export type DBMessage = InferSelectModel<typeof message>;
-
-// DEPRECATED: The following schema is deprecated and will be removed in the future.
-// Read the migration guide at https://chat-sdk.dev/docs/migration-guides/message-parts
-export const voteDeprecated = sqliteTable(
-  "Vote",
-  {
-    chatId: text("chatId").notNull().references(() => chat.id),
-    messageId: text("messageId").notNull().references(() => messageDeprecated.id),
-    isUpvoted: integer("isUpvoted").notNull(),
-  },
-  (table) => {
-    return {
-      pk: primaryKey({ columns: [table.chatId, table.messageId] }),
-    };
-  }
-);
-
-export type VoteDeprecated = InferSelectModel<typeof voteDeprecated>;
-
-export const vote = sqliteTable(
-  "Vote_v2",
-  {
-    chatId: text("chatId").notNull().references(() => chat.id),
-    messageId: text("messageId").notNull().references(() => message.id),
-    isUpvoted: integer("isUpvoted").notNull(),
-  },
-  (table) => {
-    return {
-      pk: primaryKey({ columns: [table.chatId, table.messageId] }),
-    };
-  }
-);
-
-export type Vote = InferSelectModel<typeof vote>;
-
-export const document = sqliteTable(
-  "Document",
-  {
-    id: text("id").notNull(),
-    createdAt: integer("createdAt").notNull(),
-    title: text("title").notNull(),
-    content: text("content"),
-    kind: text("kind").notNull().default("text"),
-    userId: text("userId").notNull().references(() => user.id),
-  },
-  (table) => {
-    return {
-      pk: primaryKey({ columns: [table.id, table.createdAt] }),
-    };
-  }
-);
-
-export type Document = InferSelectModel<typeof document>;
-
-export const suggestion = sqliteTable(
-  "Suggestion",
-  {
-    id: text("id").notNull().primaryKey(),
-    documentId: text("documentId").notNull(),
-    documentCreatedAt: integer("documentCreatedAt").notNull(),
-    originalText: text("originalText").notNull(),
-    suggestedText: text("suggestedText").notNull(),
-    description: text("description"),
-    isResolved: integer("isResolved").notNull().default(0),
-    userId: text("userId").notNull().references(() => user.id),
-    createdAt: integer("createdAt").notNull(),
-  },
-  (table) => ({
-    documentRef: foreignKey({
-      columns: [table.documentId, table.documentCreatedAt],
-      foreignColumns: [document.id, document.createdAt],
-    }),
-  })
-);
-
-export type Suggestion = InferSelectModel<typeof suggestion>;
-
-export const stream = sqliteTable(
-  "Stream",
-  {
-    id: text("id").notNull().primaryKey(),
-    chatId: text("chatId").notNull(),
-    createdAt: integer("createdAt").notNull(),
-  },
-  (table) => ({
-    chatRef: foreignKey({
-      columns: [table.chatId],
-      foreignColumns: [chat.id],
-    }),
-  })
-);
-
-export type Stream = InferSelectModel<typeof stream>;
+export interface Stream {
+  id: string;
+  chatId: string;
+  createdAt: number;
+}
