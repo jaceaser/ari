@@ -87,6 +87,12 @@ pnpm dev
 | `ARI_SYSTEM_PROMPT` | Global system prompt override |
 | `MCP_SERVER_URL` | MCP server URL for tool orchestration |
 | `RATE_LIMIT` | Requests per window (default: 60) |
+| `FRONTEND_URL` | Frontend URL for magic link emails (default: `http://localhost:3000`) |
+| `AZURE_COMMUNICATION_ENDPOINT` | Azure Communication Services connection string for magic link email |
+| `AZURE_COMMUNICATION_SENDER` | Sender address for magic link email (default: `DoNotReply@reilabs.ai`) |
+| `STRIPE_SECRET_KEY` | Stripe API secret key |
+| `STRIPE_WEBHOOK_SECRET` | Stripe webhook signing secret |
+| `STRIPE_PRICE_ID` | Stripe Price ID for subscription checkout |
 
 #### Frontend (required)
 
@@ -102,6 +108,7 @@ pnpm dev
 | Variable | Description |
 |----------|-------------|
 | `COOKIE_DOMAIN` | Cookie domain for cross-subdomain auth (e.g. `.reilabs.ai`) |
+| `STRIPE_PRICE_ID` | Stripe Price ID (enables subscription enforcement in chat) |
 
 ---
 
