@@ -646,14 +646,16 @@ def _messages_for_tool_payload(messages: list[dict[str, Any]]) -> list[dict[str,
 
 
 def _extract_prompt_candidates_from_tool_payload(payload: Any) -> list[str]:
+    from middleware.guardrails import sanitize_mcp_prompt
+
     candidates: list[str] = []
 
     if isinstance(payload, dict):
         for key, value in payload.items():
             if key in {"route_system_prompt", "classification_prompt"} and isinstance(value, str):
-                text = value.strip()
-                if text:
-                    candidates.append(text)
+                sanitized = sanitize_mcp_prompt(value)
+                if sanitized:
+                    candidates.append(sanitized)
             else:
                 candidates.extend(_extract_prompt_candidates_from_tool_payload(value))
     elif isinstance(payload, list):
@@ -716,11 +718,14 @@ def _sse_json(payload: dict[str, Any]) -> str:
     return _sse_line(json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
 
 
-def _tool_completion_args(messages: list[dict[str, Any]]) -> dict[str, Any]:
+def _tool_completion_args(
+    messages: list[dict[str, Any]],
+    tools: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     args: dict[str, Any] = {
         "model": AZURE_OPENAI_DEPLOYMENT,
         "messages": messages,
-        "tools": MCP_TOOL_DEFINITIONS,
+        "tools": tools if tools is not None else MCP_TOOL_DEFINITIONS,
         "tool_choice": "auto",
         "parallel_tool_calls": True,
     }
@@ -970,6 +975,49 @@ async def _auto_generate_docx_if_needed(response_text: str) -> str | None:
     return None
 
 
+# Tools available to unauthenticated / guest / unsubscribed users
+GUEST_TOOL_NAMES: frozenset[str] = frozenset({
+    "mcp_classify_route",
+    "mcp_education_context",
+    "mcp_offtopic_context",
+    "mcp_integration_config",
+})
+
+
+async def _get_tools_for_user() -> list[dict[str, Any]]:
+    """Return MCP tool definitions filtered by user tier.
+
+    Guest / unsubscribed users get a limited set of tools.
+    API-key authenticated users (legacy /v1/*) get all tools.
+    Subscribed users get all tools.
+    """
+    user_id = getattr(request, "user_id", None)
+
+    # API key auth (legacy path) → full access
+    if not user_id:
+        return MCP_TOOL_DEFINITIONS
+
+    # Check subscription status
+    try:
+        from cosmos import SessionsCosmosClient
+
+        cosmos = SessionsCosmosClient.get_instance()
+        if cosmos:
+            sub = await cosmos.get_user_subscription(user_id)
+            if sub and sub.get("subscription_status") in ("active", "trialing"):
+                return MCP_TOOL_DEFINITIONS
+        else:
+            return MCP_TOOL_DEFINITIONS  # No Cosmos → don't restrict
+    except Exception:
+        return MCP_TOOL_DEFINITIONS  # Fail open
+
+    # Guest / unsubscribed → limited tools
+    return [
+        tool for tool in MCP_TOOL_DEFINITIONS
+        if tool.get("function", {}).get("name") in GUEST_TOOL_NAMES
+    ]
+
+
 async def _run_mcp_tool_orchestration(
     messages: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
@@ -988,10 +1036,11 @@ async def _run_mcp_tool_orchestration(
 
     client = get_azure_client()
     working_messages: list[dict[str, Any]] = list(messages)
+    allowed_tools = await _get_tools_for_user()
 
     for _ in range(MCP_TOOL_MAX_ROUNDS):
         planning = await client.chat.completions.create(
-            **_tool_completion_args(working_messages)
+            **_tool_completion_args(working_messages, tools=allowed_tools)
         )
 
         if not planning.choices:
@@ -1248,6 +1297,28 @@ async def chat_completions():
                 "error": "Message too long",
                 "detail": f"Message at index {i} exceeds maximum length of {MAX_MESSAGE_LENGTH} characters",
             }, 400
+
+    # Guardrails — check last user message before processing
+    from middleware.guardrails import check_prompt_injection, check_content, check_off_topic
+
+    last_user_content = ""
+    for msg in reversed(request_body.messages):
+        if msg.role == "user":
+            last_user_content = msg.content if isinstance(msg.content, str) else json.dumps(msg.content)
+            break
+
+    if last_user_content:
+        injection = check_prompt_injection(last_user_content)
+        if injection:
+            return {"error": "blocked", "detail": injection}, 400
+
+        moderation = check_content(last_user_content)
+        if moderation:
+            return {"error": "blocked", "detail": moderation}, 400
+
+        offtopic = check_off_topic(last_user_content)
+        if offtopic:
+            return {"error": "off_topic", "detail": offtopic}, 422
 
     try:
         _require_azure_config()

@@ -391,6 +391,21 @@ async def send_message(session_id: str):
     if len(content) > 32000:
         return jsonify({"error": "Message too long"}), 400
 
+    # Guardrails — check user message before processing
+    from middleware.guardrails import check_prompt_injection, check_content, check_off_topic
+
+    injection = check_prompt_injection(content)
+    if injection:
+        return jsonify({"error": "blocked", "detail": injection}), 400
+
+    moderation = check_content(content)
+    if moderation:
+        return jsonify({"error": "blocked", "detail": moderation}), 400
+
+    offtopic = check_off_topic(content)
+    if offtopic:
+        return jsonify({"error": "off_topic", "detail": offtopic}), 422
+
     # Extract optional image URLs (uploaded to Azure Blob by the frontend)
     raw_images = body.get("images") or []
     images: list[str] = [
