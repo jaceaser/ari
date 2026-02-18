@@ -56,7 +56,7 @@ export async function saveChat({
 }) {
   const res = await proxyToBackend("/sessions", {
     method: "POST",
-    body: { session_id: id, title },
+    body: { id, title },
   });
   if (!res.ok) {
     // Session may already exist (409), which is fine

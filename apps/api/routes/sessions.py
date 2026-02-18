@@ -221,6 +221,7 @@ async def list_sessions():
     return jsonify([
         {
             "id": s["id"],
+            "userId": s.get("userId", user_id),
             "title": s.get("title"),
             "status": s.get("status", "active"),
             "created_at": s.get("createdAt", ""),
@@ -252,6 +253,7 @@ async def get_session(session_id: str):
 
     return jsonify({
         "id": session["id"],
+        "userId": session.get("userId", user_id),
         "title": session.get("title"),
         "status": session.get("status", "active"),
         "created_at": session.get("createdAt", ""),
