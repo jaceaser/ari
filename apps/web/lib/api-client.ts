@@ -104,7 +104,16 @@ export async function getChatsByUserId({
     created_at?: string;
     userId?: string;
   }>;
-  const chats: Chat[] = sessions.map((s) => ({
+
+  // Deduplicate by id (Cosmos can occasionally return dupes on revalidation)
+  const seen = new Set<string>();
+  const uniqueSessions = sessions.filter((s) => {
+    if (seen.has(s.id)) return false;
+    seen.add(s.id);
+    return true;
+  });
+
+  let chats: Chat[] = uniqueSessions.map((s) => ({
     id: s.id,
     title: s.title || "",
     createdAt: s.created_at ? new Date(s.created_at).getTime() : Date.now(),
@@ -112,7 +121,25 @@ export async function getChatsByUserId({
     visibility: "private",
     status: s.status || "active",
   }));
-  return { chats: chats.slice(0, limit), hasMore: chats.length > limit };
+
+  // Sort newest first
+  chats.sort((a, b) => b.createdAt - a.createdAt);
+
+  // Cursor-based pagination: slice to the window requested
+  if (endingBefore) {
+    const idx = chats.findIndex((c) => c.id === endingBefore);
+    if (idx !== -1) {
+      chats = chats.slice(idx + 1);
+    }
+  } else if (startingAfter) {
+    const idx = chats.findIndex((c) => c.id === startingAfter);
+    if (idx !== -1) {
+      chats = chats.slice(0, idx);
+    }
+  }
+
+  const hasMore = chats.length > limit;
+  return { chats: chats.slice(0, limit), hasMore };
 }
 
 export async function deleteChatById({ id }: { id: string }) {

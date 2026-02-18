@@ -295,7 +295,7 @@ MCP_TOOL_DEFINITIONS: list[dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "mcp_buyers_context",
-            "description": "Get buyer route context and location hints.",
+            "description": "Get buyer route hints when you need general guidance about the buyers feature. Do NOT use this to retrieve actual buyer data — use mcp_buyers_search instead.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -309,7 +309,7 @@ MCP_TOOL_DEFINITIONS: list[dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "mcp_buyers_search",
-            "description": "Query Cosmos buyers list by city/state and return preview rows.",
+            "description": "Search the database for actual cash buyers by city and state. USE THIS TOOL when the user asks for a list of buyers, cash buyers, or investor buyers in a specific location. Returns real buyer names, phone numbers, and emails from the nationwide buyers database.",
             "parameters": {
                 "type": "object",
                 "properties": {
