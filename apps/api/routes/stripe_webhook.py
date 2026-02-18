@@ -1,4 +1,4 @@
-"""POST /webhooks/stripe — Stripe webhook endpoint for subscription events."""
+"""POST /webhook/stripe — Stripe webhook endpoint for subscription events."""
 
 import logging
 import os
@@ -16,7 +16,7 @@ def _get_stripe_config() -> tuple[str, str]:
     return secret_key, webhook_secret
 
 
-@stripe_webhook_bp.post("/webhooks/stripe")
+@stripe_webhook_bp.post("/webhook/stripe")
 async def stripe_webhook():
     """Handle Stripe webhook events for subscription lifecycle."""
     secret_key, webhook_secret = _get_stripe_config()
@@ -65,6 +65,10 @@ async def stripe_webhook():
         elif event_type == "customer.subscription.deleted":
             sub = event["data"]["object"]
             await _handle_subscription_deleted(cosmos, sub)
+
+        elif event_type == "customer.updated":
+            customer = event["data"]["object"]
+            await _handle_customer_updated(cosmos, customer)
 
         elif event_type == "checkout.session.completed":
             session = event["data"]["object"]
@@ -118,6 +122,37 @@ async def _handle_subscription_deleted(cosmos, sub: dict) -> None:
 
     await cosmos.update_user_subscription(user_id, stripe_data)
     logger.info("Subscription canceled for user %s", user_id)
+
+
+async def _handle_customer_updated(cosmos, customer: dict) -> None:
+    """Sync email change from Stripe Customer Portal to ARI."""
+    customer_id = customer.get("id")
+    new_email = (customer.get("email") or "").strip().lower()
+    if not customer_id or not new_email:
+        return
+
+    user = await cosmos.find_user_by_stripe_customer(customer_id)
+    if not user:
+        logger.warning("No user found for Stripe customer %s", customer_id)
+        return
+
+    current_email = (user.get("email") or "").strip().lower()
+    if current_email == new_email:
+        return  # No change
+
+    user_id = user.get("userId", user.get("id"))
+
+    # Check that the new email isn't already used by another ARI user
+    existing = await cosmos.find_user_by_email(new_email)
+    if existing and existing.get("userId", existing.get("id")) != user_id:
+        logger.warning(
+            "Cannot sync Stripe email change: %s already in use by another user",
+            new_email,
+        )
+        return
+
+    await cosmos.update_user_email(user_id, new_email)
+    logger.info("Synced email change from Stripe for user %s: %s → %s", user_id, current_email, new_email)
 
 
 async def _handle_checkout_completed(cosmos, session: dict) -> None:

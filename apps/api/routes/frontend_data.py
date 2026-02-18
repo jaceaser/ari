@@ -23,7 +23,7 @@ def _get_cosmos():
 
 def _user_id():
     """Get authenticated user ID from request context (set by auth middleware)."""
-    return getattr(request, "_user_id", None)
+    return getattr(request, "user_id", None)
 
 
 # ── Messages ──

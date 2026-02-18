@@ -4,7 +4,6 @@ import { toast } from "sonner";
 import { useChatVisibility } from "@/hooks/use-chat-visibility";
 import type { Chat } from "@/lib/db/schema";
 import { renameChatAction } from "@/app/(chat)/actions";
-import { Badge } from "@/components/ui/badge";
 import {
   CheckCircleFillIcon,
   GlobeIcon,
@@ -93,14 +92,6 @@ const PureChatItem = ({
         <SidebarMenuButton asChild isActive={isActive}>
           <Link href={`/chat/${chat.id}`} onClick={() => setOpenMobile(false)}>
             <span className="truncate">{chat.title || "Untitled"}</span>
-            {chat.status === "sealed" && (
-              <Badge
-                variant="outline"
-                className="ml-1.5 shrink-0 px-1 py-0 text-[10px]"
-              >
-                Sealed
-              </Badge>
-            )}
           </Link>
         </SidebarMenuButton>
       )}

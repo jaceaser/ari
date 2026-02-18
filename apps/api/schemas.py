@@ -28,7 +28,6 @@ class SessionListItem(BaseModel):
     title: Optional[str] = None
     status: str
     created_at: str
-    sealed_at: Optional[str] = None
 
 
 class SessionDetail(SessionListItem):

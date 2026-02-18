@@ -4,7 +4,6 @@ Session endpoints: CRUD, messages, and streaming with MCP orchestration.
 POST   /sessions                     — create session
 GET    /sessions                     — list sessions
 GET    /sessions/<id>                — get session detail
-POST   /sessions/<id>/seal           — seal session
 POST   /sessions/<id>/messages       — send message + stream response
 GET    /sessions/<id>/messages       — get all messages (full history for UI replay)
 """
@@ -225,7 +224,6 @@ async def list_sessions():
             "title": s.get("title"),
             "status": s.get("status", "active"),
             "created_at": s.get("createdAt", ""),
-            "sealed_at": s.get("sealedAt"),
         }
         for s in sessions
     ])
@@ -257,7 +255,6 @@ async def get_session(session_id: str):
         "title": session.get("title"),
         "status": session.get("status", "active"),
         "created_at": session.get("createdAt", ""),
-        "sealed_at": session.get("sealedAt"),
     })
 
 
@@ -319,34 +316,6 @@ async def update_session(session_id: str):
         "id": updated["id"],
         "title": updated.get("title"),
         "status": updated.get("status", "active"),
-    })
-
-
-@sessions_bp.post("/sessions/<session_id>/seal")
-async def seal_session(session_id: str):
-    """Seal a session (no more messages allowed)."""
-    err = _validate_path_session_id(session_id)
-    if err:
-        return err
-
-    from cosmos import SessionsCosmosClient
-
-    user_id = getattr(request, "user_id", None)
-    if not user_id:
-        return jsonify({"error": "Unauthorized"}), 401
-
-    cosmos = SessionsCosmosClient.get_instance()
-    if not cosmos:
-        return jsonify({"error": "Persistence not configured"}), 503
-
-    session = await cosmos.seal_session(user_id, session_id)
-    if not session:
-        return jsonify({"error": "Not found"}), 404
-
-    return jsonify({
-        "id": session["id"],
-        "status": session["status"],
-        "sealed_at": session.get("sealedAt"),
     })
 
 
@@ -413,9 +382,6 @@ async def send_message(session_id: str):
     session = await cosmos.get_session(user_id, session_id)
     if not session:
         return jsonify({"error": "Not found"}), 404
-    if session.get("status") == "sealed":
-        return jsonify({"error": "Session is sealed"}), 409
-
     # Parse request body
     body = await request.get_json(silent=True)
     if not body or not isinstance(body.get("content"), str) or not body["content"].strip():

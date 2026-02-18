@@ -1289,7 +1289,6 @@ async def root():
             "POST /sessions",
             "GET /sessions",
             "GET /sessions/<id>",
-            "POST /sessions/<id>/seal",
             "POST /sessions/<id>/messages",
             "GET /sessions/<id>/messages",
             "GET /lead-runs",
@@ -1298,7 +1297,7 @@ async def root():
             "POST /auth/magic-link/verify",
             "GET /billing/status",
             "POST /billing/create-checkout",
-            "POST /webhooks/stripe",
+            "POST /webhook/stripe",
             "GET /health",
         ],
     }, 200

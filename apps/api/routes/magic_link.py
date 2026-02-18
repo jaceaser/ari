@@ -5,9 +5,11 @@ POST /auth/magic-link/verify — verify token and return JWT
 """
 
 import datetime
+import json
 import logging
 import os
 import secrets
+import ssl
 import uuid
 
 from quart import Blueprint, jsonify, request
@@ -19,6 +21,69 @@ magic_link_bp = Blueprint("magic_link", __name__)
 # Simple in-memory rate limit: email -> last send timestamp
 _send_timestamps: dict[str, float] = {}
 _SEND_COOLDOWN_SECONDS = 60
+
+
+async def _migrate_redis_subscription(email: str, user_id: str, cosmos) -> None:
+    """On-login migration: check legacy Redis for subscription data and copy to Cosmos.
+
+    This is a best-effort operation — if Redis is unavailable or the user has
+    no subscription there, we silently skip. Once the one-time bulk migration
+    script has been run this becomes a no-op for most users.
+    """
+    # Check if user already has subscription data in Cosmos
+    existing = await cosmos.get_user_subscription(user_id)
+    if existing and existing.get("subscription_status"):
+        return  # Already migrated
+
+    redis_host = os.getenv("REDIS_HOST", "").strip()
+    redis_password = os.getenv("REDIS_PASSWORD", "").strip()
+    if not redis_host or not redis_password:
+        return  # Redis not configured, skip
+
+    try:
+        import redis.asyncio as aioredis
+    except ImportError:
+        logger.debug("redis package not installed; skipping on-login migration")
+        return
+
+    try:
+        redis_port = int(os.getenv("REDIS_PORT", "6380"))
+        client = aioredis.Redis(
+            host=redis_host,
+            port=redis_port,
+            password=redis_password,
+            ssl=True,
+            ssl_cert_reqs=ssl.CERT_NONE,
+            ssl_check_hostname=False,
+            decode_responses=True,
+            socket_timeout=5,
+            socket_connect_timeout=5,
+            db=0,
+        )
+
+        raw = await client.get(f"subscription:{email}")
+        await client.aclose()
+
+        if not raw:
+            return
+
+        data = json.loads(raw)
+        status = data.get("status", "")
+        active_statuses = {"active", "pending", "trialing"}
+
+        stripe_data = {
+            "subscription_status": "active" if status in active_statuses else status,
+            "subscription_id": data.get("subscription_id"),
+            "plan": data.get("plan_type"),
+            "subscription_expires_at": data.get("next_payment"),
+            "legacy_redis_migrated": True,
+        }
+
+        await cosmos.update_user_subscription(user_id, stripe_data)
+        logger.info("On-login migration: copied subscription for %s from Redis", email)
+
+    except Exception:
+        logger.debug("On-login Redis migration failed for %s (non-fatal)", email, exc_info=True)
 
 
 def _get_frontend_url() -> str:
@@ -113,7 +178,7 @@ async def send_magic_link():
         return jsonify({"error": "Server configuration error"}), 500
 
     frontend_url = _get_frontend_url()
-    link = f"{frontend_url}/auth/verify?token={token}"
+    link = f"{frontend_url}/verify?token={token}"
 
     try:
         await _send_email(email, link)
@@ -125,6 +190,36 @@ async def send_magic_link():
     _send_timestamps[email] = now
 
     return jsonify({"ok": True})
+
+
+@magic_link_bp.post("/auth/update-email")
+async def update_email():
+    """Update the authenticated user's email. Sends a magic link to verify the new address."""
+    user_id = getattr(request, "user_id", None)
+    if not user_id:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    body = await request.get_json(silent=True) or {}
+    new_email = (body.get("email") or "").strip().lower()
+
+    if not new_email or "@" not in new_email:
+        return jsonify({"error": "Valid email is required"}), 400
+
+    from cosmos import SessionsCosmosClient
+
+    cosmos = SessionsCosmosClient.get_instance()
+    if not cosmos:
+        return jsonify({"error": "Server configuration error"}), 500
+
+    # Check if the new email is already in use by another user
+    existing = await cosmos.find_user_by_email(new_email)
+    if existing and existing.get("userId") != user_id:
+        return jsonify({"error": "Email already in use"}), 409
+
+    # Update the user document directly
+    await cosmos.update_user_email(user_id, new_email)
+
+    return jsonify({"ok": True, "email": new_email})
 
 
 @magic_link_bp.post("/auth/magic-link/verify")
@@ -151,11 +246,21 @@ async def verify_magic_link():
 
     email = doc["email"]
 
-    # Derive deterministic user ID from email
-    user_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"ari:user:{email}"))
+    # Check if user already exists with this email (handles email changes).
+    # If they changed their email, the user doc has the new email but the old user_id.
+    # Using find_user_by_email ensures we reuse the existing account.
+    existing = await cosmos.find_user_by_email(email)
+    if existing:
+        user_id = existing.get("userId", existing.get("id"))
+    else:
+        # Derive deterministic user ID for new users
+        user_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"ari:user:{email}"))
 
     # Ensure user exists in Cosmos
     await cosmos.ensure_user(user_id, email)
+
+    # Migrate subscription data from legacy Redis if not already in Cosmos
+    await _migrate_redis_subscription(email, user_id, cosmos)
 
     # Issue JWT
     secret, algorithm = _get_jwt_config()

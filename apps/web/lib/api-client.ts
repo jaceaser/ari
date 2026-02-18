@@ -106,7 +106,7 @@ export async function getChatsByUserId({
   }>;
   const chats: Chat[] = sessions.map((s) => ({
     id: s.id,
-    title: s.title || "Untitled",
+    title: s.title || "",
     createdAt: s.created_at ? new Date(s.created_at).getTime() : Date.now(),
     userId: s.userId || id,
     visibility: "private",

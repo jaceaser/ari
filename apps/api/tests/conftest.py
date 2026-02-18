@@ -29,6 +29,9 @@ def _phase2_env(monkeypatch):
     # Reset cached JWT config so env changes take effect
     import middleware.auth as auth_mod
     auth_mod._JWT_SECRET = None
+    # Clear rate limiter between tests
+    from middleware.rate_limit import _limiter
+    _limiter._requests.clear()
 
 
 @pytest.fixture
@@ -81,7 +84,6 @@ def mock_cosmos():
         "title": None,
         "status": "active",
         "createdAt": "2025-01-01T00:00:00+00:00",
-        "sealedAt": None,
     })
     mock.get_sessions = AsyncMock(return_value=[
         {
@@ -91,7 +93,6 @@ def mock_cosmos():
             "title": "Test Session",
             "status": "active",
             "createdAt": "2025-01-01T00:00:00+00:00",
-            "sealedAt": None,
         }
     ])
     mock.get_session = AsyncMock(return_value={
@@ -101,12 +102,6 @@ def mock_cosmos():
         "title": "Test Session",
         "status": "active",
         "createdAt": "2025-01-01T00:00:00+00:00",
-        "sealedAt": None,
-    })
-    mock.seal_session = AsyncMock(return_value={
-        "id": TEST_SESSION_ID,
-        "status": "sealed",
-        "sealedAt": "2025-01-01T01:00:00+00:00",
     })
     mock.create_message = AsyncMock(return_value={
         "id": "msg-123",
@@ -137,6 +132,33 @@ def mock_cosmos():
             "createdAt": "2025-01-01T00:00:00+00:00",
         },
     ])
+    # Frontend data persistence methods (PR9a)
+    mock.save_messages = AsyncMock()
+    mock.get_messages_by_chat_id = AsyncMock(return_value=[])
+    mock.get_message_by_id = AsyncMock(return_value=None)
+    mock.update_message = AsyncMock()
+    mock.delete_messages_after_timestamp = AsyncMock()
+    mock.get_message_count = AsyncMock(return_value=0)
+    mock.save_document = AsyncMock()
+    mock.get_document_by_id = AsyncMock(return_value=None)
+    mock.get_documents_by_id = AsyncMock(return_value=[])
+    mock.delete_documents_after_timestamp = AsyncMock()
+    mock.save_suggestions = AsyncMock()
+    mock.get_suggestions_by_document_id = AsyncMock(return_value=[])
+    mock.vote_message = AsyncMock()
+    mock.get_votes_by_chat_id = AsyncMock(return_value=[])
+
+    # Magic link methods (PR9c)
+    mock.store_magic_token = AsyncMock(return_value={})
+    mock.verify_magic_token = AsyncMock(return_value=None)
+    mock.delete_magic_token = AsyncMock()
+
+    # Subscription methods (PR9d)
+    mock.get_user_subscription = AsyncMock(return_value=None)
+    mock.update_user_subscription = AsyncMock()
+    mock.find_user_by_email = AsyncMock(return_value=None)
+    mock.find_user_by_stripe_customer = AsyncMock(return_value=None)
+
     mock.create_lead_run = AsyncMock(return_value={"id": TEST_LEAD_RUN_ID})
     mock.get_lead_runs = AsyncMock(return_value=[
         {

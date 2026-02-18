@@ -33,8 +33,7 @@ async function ChatPage({ params }: { params: Promise<{ id: string }> }) {
   const messagesFromDb = await getMessagesByChatId({ id });
   const uiMessages = convertToUIMessages(messagesFromDb);
 
-  const isSealed = chat.status === "sealed";
-  const isReadonly = isSealed || session.user.id !== chat.userId;
+  const isReadonly = session.user.id !== chat.userId;
 
   return (
     <>

@@ -52,7 +52,7 @@ class SlidingWindowRateLimiter:
 
 _limiter = SlidingWindowRateLimiter()
 
-SKIP_RATE_LIMIT_PATHS = frozenset({"/", "/health", "/webhooks/stripe"})
+SKIP_RATE_LIMIT_PATHS = frozenset({"/", "/health", "/webhook/stripe"})
 
 
 async def rate_limit_middleware() -> Response | None:

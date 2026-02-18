@@ -2,6 +2,7 @@
 
 GET  /billing/status          — current user's subscription status
 POST /billing/create-checkout — create Stripe Checkout Session
+POST /billing/create-portal   — create Stripe Customer Portal session
 """
 
 import logging
@@ -80,3 +81,48 @@ async def create_checkout():
         return jsonify({"error": "Failed to create checkout session"}), 500
 
     return jsonify({"url": session.url})
+
+
+@billing_bp.post("/billing/create-portal")
+async def create_portal():
+    """Create a Stripe Customer Portal session for managing subscription."""
+    user_id = _user_id()
+    if not user_id:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    secret_key = os.getenv("STRIPE_SECRET_KEY", "").strip()
+    frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3000").rstrip("/")
+
+    if not secret_key:
+        return jsonify({"error": "Stripe not configured"}), 500
+
+    try:
+        import stripe
+    except ImportError:
+        return jsonify({"error": "Server configuration error"}), 500
+
+    stripe.api_key = secret_key
+
+    # Look up the user's Stripe customer ID
+    from cosmos import SessionsCosmosClient
+
+    cosmos = SessionsCosmosClient.get_instance()
+    if not cosmos:
+        return jsonify({"error": "Server configuration error"}), 500
+
+    sub = await cosmos.get_user_subscription(user_id)
+    customer_id = sub.get("stripe_customer_id") if sub else None
+
+    if not customer_id:
+        return jsonify({"error": "No subscription found. Please subscribe first."}), 404
+
+    try:
+        portal_session = stripe.billing_portal.Session.create(
+            customer=customer_id,
+            return_url=f"{frontend_url}/billing",
+        )
+    except Exception:
+        logger.exception("Failed to create Stripe portal session")
+        return jsonify({"error": "Failed to create portal session"}), 500
+
+    return jsonify({"url": portal_session.url})

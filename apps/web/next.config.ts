@@ -5,7 +5,11 @@ const nextConfig: NextConfig = {
   devIndicators: false,
   cacheComponents: true,
   images: {
-    remotePatterns: [],
+    remotePatterns: [
+      {
+        hostname: "avatar.vercel.sh",
+      },
+    ],
   },
 };
 

@@ -138,7 +138,6 @@ class SessionsCosmosClient:
             "title": title,
             "status": "active",
             "createdAt": datetime.now(timezone.utc).isoformat(),
-            "sealedAt": None,
         }
         async with self._client() as client:
             container = await self._container(client)
@@ -199,17 +198,6 @@ class SessionsCosmosClient:
 
     async def update_session(self, user_id: str, session: dict[str, Any]) -> dict[str, Any]:
         """Update an existing session document (e.g. title)."""
-        async with self._client() as client:
-            container = await self._container(client)
-            await container.upsert_item(session)
-        return session
-
-    async def seal_session(self, user_id: str, session_id: str) -> Optional[dict[str, Any]]:
-        session = await self.get_session(user_id, session_id)
-        if not session:
-            return None
-        session["status"] = "sealed"
-        session["sealedAt"] = datetime.now(timezone.utc).isoformat()
         async with self._client() as client:
             container = await self._container(client)
             await container.upsert_item(session)
@@ -703,6 +691,20 @@ class SessionsCosmosClient:
                     "subscription_expires_at": item.get("subscription_expires_at"),
                 }
             return None
+
+    async def update_user_email(self, user_id: str, new_email: str) -> None:
+        """Update a user's email address."""
+        async with self._client() as client:
+            container = await self._container(client)
+            query = "SELECT * FROM c WHERE c.type = 'user' AND c.userId = @uid"
+            params = [{"name": "@uid", "value": user_id}]
+            async for item in container.query_items(
+                query=query, parameters=params, partition_key=user_id
+            ):
+                item["email"] = new_email
+                await container.upsert_item(item)
+                return
+            logger.warning("No user doc found for %s to update email", user_id)
 
     async def find_user_by_email(self, email: str) -> Optional[dict[str, Any]]:
         """Find a user document by email (cross-partition query)."""

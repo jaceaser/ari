@@ -22,7 +22,6 @@
 | GET | `/api/sessions` | GET /sessions | NextAuth → JWT | List user sessions |
 | POST | `/api/sessions` | POST /sessions `{ id?, title? }` | NextAuth → JWT | Create session (optional client ID) |
 | GET | `/api/sessions/[id]/messages` | GET /sessions/:id/messages | NextAuth → JWT | Message history (UI replay) |
-| POST | `/api/sessions/[id]/seal` | POST /sessions/:id/seal | NextAuth → JWT | Seal session |
 | GET | `/api/lead-runs` | GET /lead-runs | NextAuth → JWT | List lead runs |
 | GET | `/api/lead-runs/[id]` | GET /lead-runs/:id | NextAuth → JWT | Lead run detail + file_url |
 | PATCH | `/api/sessions/[id]` | PATCH /sessions/:id `{ title }` | NextAuth → JWT | Update session title |
@@ -45,7 +44,6 @@
 | POST | `/sessions` | `{ title? }` | `{ id, created_at }` (201) | JWT | Create chat session |
 | GET | `/sessions` | None | `SessionListItem[]` | JWT | List user sessions |
 | GET | `/sessions/<id>` | None | `SessionDetail` | JWT | Get session detail |
-| POST | `/sessions/<id>/seal` | None | `{ id, status, sealed_at }` | JWT | Seal session (no more messages) |
 | POST | `/sessions/<id>/messages` | `{ content: string, images?: string[], documents?: {url,name,mediaType}[] }` | SSE stream | JWT | Send message + stream response |
 | GET | `/sessions/<id>/messages` | None | `MessageResponse[]` | JWT | Full message history (UI replay) |
 | PATCH | `/sessions/<id>` | `{ title: string }` | `{ id, title, status }` | JWT | Update session title |
@@ -181,9 +179,8 @@ Error response:
 | type | "session" | Document type discriminator |
 | userId | string | Partition key |
 | title | string? | Optional session title |
-| status | "active" / "sealed" | Session lifecycle |
+| status | "active" | Session lifecycle |
 | createdAt | datetime (ISO) | Creation timestamp |
-| sealedAt | datetime? (ISO) | When sealed |
 
 ### Message (Phase 2 — Cosmos `sessions` container)
 | Field | Type | Notes |
@@ -322,6 +319,5 @@ Error response:
 1. **TypeScript zero errors** — Run `cd apps/web && npx tsc --noEmit`. Verify zero errors.
 2. **Backend startup validation** — Remove `AZURE_OPENAI_KEY` from `.env.local` and start the backend. Verify it fails immediately with a clear error message listing the missing var.
 3. **Rate limiting behind proxy** — Send requests through a reverse proxy. Verify rate limiting uses the client IP from `X-Forwarded-For`, not the proxy IP.
-4. **Sealed session readonly** — Open a sealed session URL. Verify: input is hidden, "Sealed" badge shows, "Start New Chat" link works.
-5. **E2e tests pass** — Run `pnpm exec playwright test`. Verify all streaming, sealed session, and lead run tests pass.
+4. **E2e tests pass** — Run `pnpm exec playwright test`. Verify all streaming and lead run tests pass.
 6. **RUNBOOK accuracy** — Follow `docs/RUNBOOK.md` on a clean machine. Verify local setup works end-to-end.

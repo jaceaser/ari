@@ -41,9 +41,21 @@ async def exchange():
     # Ensure user exists in Cosmos (if configured)
     from cosmos import SessionsCosmosClient
 
-    user_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"ari:user:{email}"))
-
     cosmos = SessionsCosmosClient.get_instance()
+
+    # Check if user already exists with this email (handles email changes)
+    # If they changed their email, the user doc has the new email but the old user_id.
+    # Using find_user_by_email ensures we reuse the existing account.
+    user_id = None
+    if cosmos:
+        existing = await cosmos.find_user_by_email(email)
+        if existing:
+            user_id = existing.get("userId", existing.get("id"))
+
+    # Fall back to deterministic ID for new users
+    if not user_id:
+        user_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"ari:user:{email}"))
+
     if cosmos:
         await cosmos.ensure_user(user_id, email)
 

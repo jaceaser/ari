@@ -181,4 +181,3 @@ curl http://localhost:8000/health
 | Streaming freezes | Network/proxy timeout | Check proxy timeout settings (need >60s for SSE) |
 | Rate limited (429) | Too many requests | Wait for `retry_after` seconds or increase `RATE_LIMIT` |
 | File upload fails | Azure Blob not configured | Set `AZURE_STORAGE_CONNECTION_STRING` and `AZURE_STORAGE_CONTAINER` |
-| Sealed session still editable | Frontend not checking status | Verify backend returns `status: "sealed"` on session GET |

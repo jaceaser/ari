@@ -217,7 +217,7 @@ export function Chat({
           {isReadonly ? (
             <div className="flex w-full items-center justify-center gap-3 py-4 text-sm text-muted-foreground">
               <LockIcon className="size-4" />
-              <span>This session is sealed</span>
+              <span>This session is read-only</span>
               <Button asChild variant="default" size="sm">
                 <Link href="/">Start New Chat</Link>
               </Button>

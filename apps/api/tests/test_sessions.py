@@ -70,20 +70,6 @@ class TestSessionCRUD:
         resp = await app_client.get(f"/sessions/{missing_id}", headers=auth_headers)
         assert resp.status_code == 404
 
-    @pytest.mark.asyncio
-    async def test_seal_session(self, app_client, auth_headers, mock_cosmos):
-        resp = await app_client.post(f"/sessions/{TEST_SESSION_ID}/seal", headers=auth_headers)
-        assert resp.status_code == 200
-        data = await resp.get_json()
-        assert data["status"] == "sealed"
-        assert data["sealed_at"] is not None
-
-    @pytest.mark.asyncio
-    async def test_seal_nonexistent_session(self, app_client, auth_headers, mock_cosmos):
-        mock_cosmos.seal_session.return_value = None
-        missing_id = str(uuid.uuid4())
-        resp = await app_client.post(f"/sessions/{missing_id}/seal", headers=auth_headers)
-        assert resp.status_code == 404
 
 
 class TestMessages:
@@ -121,20 +107,6 @@ class TestMessages:
             headers=auth_headers,
         )
         assert resp.status_code == 400
-
-    @pytest.mark.asyncio
-    async def test_send_message_to_sealed_session(self, app_client, auth_headers, mock_cosmos):
-        mock_cosmos.get_session.return_value = {
-            "id": TEST_SESSION_ID,
-            "status": "sealed",
-            "userId": TEST_USER_ID,
-        }
-        resp = await app_client.post(
-            f"/sessions/{TEST_SESSION_ID}/messages",
-            json={"content": "hello"},
-            headers=auth_headers,
-        )
-        assert resp.status_code == 409
 
     @pytest.mark.asyncio
     async def test_send_message_to_nonexistent_session(self, app_client, auth_headers, mock_cosmos):
@@ -223,11 +195,6 @@ class TestSessionIdHardening:
         assert resp.status_code == 400
 
     @pytest.mark.asyncio
-    async def test_seal_session_invalid_path_id(self, app_client, auth_headers):
-        resp = await app_client.post("/sessions/not-a-uuid/seal", headers=auth_headers)
-        assert resp.status_code == 400
-
-    @pytest.mark.asyncio
     async def test_list_messages_invalid_path_id(self, app_client, auth_headers):
         resp = await app_client.get("/sessions/not-a-uuid/messages", headers=auth_headers)
         assert resp.status_code == 400
@@ -283,25 +250,6 @@ class TestSessionIdHardening:
 
         # Verify Cosmos was called with User B's ID (ownership enforcement via partition key)
         mock_cosmos.get_session.assert_called_with(TEST_USER_ID_B, TEST_SESSION_ID)
-
-    @pytest.mark.asyncio
-    async def test_cross_user_seal_denied(self, app_client, mock_cosmos):
-        """User B cannot seal User A's session."""
-        import jwt as pyjwt
-
-        now = datetime.datetime.now(datetime.timezone.utc)
-        token_b = pyjwt.encode(
-            {"sub": TEST_USER_ID_B, "email": TEST_USER_EMAIL_B, "iat": now, "exp": now + datetime.timedelta(hours=1)},
-            TEST_JWT_SECRET,
-            algorithm="HS256",
-        )
-        headers_b = {"Authorization": f"Bearer {token_b}"}
-
-        mock_cosmos.seal_session.return_value = None
-
-        resp = await app_client.post(f"/sessions/{TEST_SESSION_ID}/seal", headers=headers_b)
-        assert resp.status_code == 404
-        mock_cosmos.seal_session.assert_called_with(TEST_USER_ID_B, TEST_SESSION_ID)
 
     @pytest.mark.asyncio
     async def test_cross_user_messages_denied(self, app_client, mock_cosmos):
@@ -368,7 +316,6 @@ class TestSessionIdHardening:
             "userId": TEST_USER_ID_B,
             "status": "active",
             "createdAt": "2025-01-01T00:00:00+00:00",
-            "sealedAt": None,
         }
 
         resp = await app_client.post(

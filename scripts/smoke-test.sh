@@ -91,12 +91,12 @@ check "GET /billing/status (no auth)" "$API_URL/billing/status" "401"
 # ── Stripe webhook (no signature → 400 or 500) ──
 status=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 \
   -X POST -H "Content-Type: application/json" \
-  -d '{"type":"test"}' "$API_URL/webhooks/stripe" 2>/dev/null || echo "000")
+  -d '{"type":"test"}' "$API_URL/webhook/stripe" 2>/dev/null || echo "000")
 if [ "$status" = "400" ] || [ "$status" = "500" ]; then
-  echo "  PASS  POST /webhooks/stripe reachable ($status)"
+  echo "  PASS  POST /webhook/stripe reachable ($status)"
   PASS=$((PASS + 1))
 else
-  echo "  FAIL  POST /webhooks/stripe unexpected ($status)"
+  echo "  FAIL  POST /webhook/stripe unexpected ($status)"
   FAIL=$((FAIL + 1))
 fi
 
