@@ -901,11 +901,16 @@ async def _handle_generate_document(arguments: dict[str, Any]) -> dict[str, Any]
     }
 
 
-# Pattern for fake document URLs the model generates instead of using tools
-# Fake document URLs the model hallucinates instead of using tools.
-# NOTE: data.reilabs.ai is a REAL domain (Azure Blob custom domain) — do NOT match it.
+# Fake document URLs the model hallucinates instead of using the generate_document tool.
 _FAKE_DOC_URL_RE = re.compile(
     r'\[([^\]]*)\]\(((?:sandbox:|https?://files\.openaiusercontent\.com|https?://(?:cdn\.)?openai\.com|https?://(?:www\.)?reilabs\.ai/)[^\)]*)\)',
+    re.IGNORECASE,
+)
+
+# Hallucinated blob URLs: data.reilabs.ai/documents/...docx WITHOUT a SAS token (?sv=).
+# Real URLs from _handle_generate_document always have ?sv=...&sig=... query params.
+_HALLUCINATED_BLOB_RE = re.compile(
+    r'https?://data\.reilabs\.ai/documents/[a-zA-Z0-9_\-]+\.docx(?!\?)',
     re.IGNORECASE,
 )
 
@@ -929,11 +934,18 @@ async def _auto_generate_docx_if_needed(response_text: str) -> str | None:
             response_text, re.IGNORECASE,
         )
         bare_sandbox = re.search(r'sandbox:/[^\s\)]+\.docx?', response_text, re.IGNORECASE)
-        if not bare_fake and not bare_sandbox:
+        bare_blob = _HALLUCINATED_BLOB_RE.search(response_text)
+        if not bare_fake and not bare_sandbox and not bare_blob:
             logger.info("Auto DOCX: no fake URL found, skipping")
             return None
-        logger.info("Auto DOCX: found bare fake URL: %s", (bare_fake or bare_sandbox).group(0))
+        found = bare_fake or bare_sandbox or bare_blob
+        logger.info("Auto DOCX: found bare fake URL: %s", found.group(0))
+        # Extract a readable title from hallucinated blob filename (e.g. "single-family-home-lease-option-agreement")
         title = "Document"
+        if bare_blob:
+            slug = bare_blob.group(0).rsplit("/", 1)[-1].rsplit(".", 1)[0]
+            slug = re.sub(r'_\d+$', '', slug)  # strip trailing timestamp
+            title = slug.replace("-", " ").replace("_", " ").strip().title() or "Document"
     else:
         title = match.group(1) or "Document"
         logger.info("Auto DOCX: found fake markdown link, title=%s", title)
@@ -941,7 +953,8 @@ async def _auto_generate_docx_if_needed(response_text: str) -> str | None:
     try:
         # Strip commentary after the document content
         content = response_text
-        for marker in ["### What's", "### How", "### File Details", "---\n\n###",
+        for marker in ["## How Investors", "## Critical Investor", "## Next Steps",
+                        "### What's", "### How", "### File Details", "---\n\n###",
                         "If you want", "If for any reason", "### If you",
                         "### Next", "### ✅ What this", "### ✅ What's"]:
             idx = content.find(marker)
@@ -953,6 +966,7 @@ async def _auto_generate_docx_if_needed(response_text: str) -> str | None:
         content = _FAKE_DOC_URL_RE.sub("", content)
         content = re.sub(r'https?://files\.openaiusercontent\.com/[^\s\)]+', '', content)
         content = re.sub(r'sandbox:/[^\s\)]+', '', content)
+        content = _HALLUCINATED_BLOB_RE.sub('', content)
         # Remove emoji-heavy intro lines
         content = re.sub(r'^.*(?:👉|✅|📄).*$', '', content, flags=re.MULTILINE)
         content = content.strip()
@@ -1407,9 +1421,9 @@ async def not_found(_):
 
 
 @app.errorhandler(500)
-async def server_error(error):
+async def server_error(_):
     """500 handler."""
-    return {"error": "Internal server error", "detail": str(error)}, 500
+    return {"error": "Internal server error"}, 500
 
 
 if __name__ == "__main__":
