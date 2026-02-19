@@ -316,7 +316,7 @@ MCP_TOOL_DEFINITIONS: list[dict[str, Any]] = [
                     "prompt": {"type": "string", "description": "Buyers prompt (optional if city/state provided)."},
                     "city": {"type": "string", "description": "Target city."},
                     "state": {"type": "string", "description": "Target state abbreviation or full state name."},
-                    "max_results": {"type": "integer", "description": "Maximum buyer rows to return."},
+                    "max_results": {"type": "integer", "description": "Maximum buyer rows to return. Defaults to 50. Always use 50 unless the user explicitly asks for fewer."},
                 },
                 "required": [],
             },
@@ -902,8 +902,10 @@ async def _handle_generate_document(arguments: dict[str, Any]) -> dict[str, Any]
 
 
 # Pattern for fake document URLs the model generates instead of using tools
+# Fake document URLs the model hallucinates instead of using tools.
+# NOTE: data.reilabs.ai is a REAL domain (Azure Blob custom domain) — do NOT match it.
 _FAKE_DOC_URL_RE = re.compile(
-    r'\[([^\]]*)\]\(((?:sandbox:|https?://files\.openaiusercontent\.com|https?://(?:cdn\.)?openai\.com)[^\)]*\.docx?)\)',
+    r'\[([^\]]*)\]\(((?:sandbox:|https?://files\.openaiusercontent\.com|https?://(?:cdn\.)?openai\.com|https?://(?:www\.)?reilabs\.ai/)[^\)]*)\)',
     re.IGNORECASE,
 )
 
@@ -984,14 +986,22 @@ GUEST_TOOL_NAMES: frozenset[str] = frozenset({
 })
 
 
-async def _get_tools_for_user() -> list[dict[str, Any]]:
+async def _get_tools_for_user(user_id: str | None = None) -> list[dict[str, Any]]:
     """Return MCP tool definitions filtered by user tier.
 
     Guest / unsubscribed users get a limited set of tools.
     API-key authenticated users (legacy /v1/*) get all tools.
     Subscribed users get all tools.
+
+    ``user_id`` can be passed explicitly (required when called outside the
+    Quart request context, e.g. from an async generator).  When *None*,
+    falls back to reading from the request object for backwards compat.
     """
-    user_id = getattr(request, "user_id", None)
+    if user_id is None:
+        try:
+            user_id = getattr(request, "user_id", None)
+        except RuntimeError:
+            pass  # Outside request context — treat as no user_id
 
     # API key auth (legacy path) → full access
     if not user_id:
@@ -1006,6 +1016,8 @@ async def _get_tools_for_user() -> list[dict[str, Any]]:
             sub = await cosmos.get_user_subscription(user_id)
             if sub and sub.get("subscription_status") in ("active", "trialing"):
                 return MCP_TOOL_DEFINITIONS
+            logger.info("User %s → subscription_status=%s → guest tools",
+                        user_id, sub.get("subscription_status") if sub else "no record")
         else:
             return MCP_TOOL_DEFINITIONS  # No Cosmos → don't restrict
     except Exception:
@@ -1020,30 +1032,40 @@ async def _get_tools_for_user() -> list[dict[str, Any]]:
 
 async def _run_mcp_tool_orchestration(
     messages: list[dict[str, Any]],
+    user_id: str | None = None,
 ) -> list[dict[str, Any]]:
     """
     Model-driven tool loop:
     1) Ask model to call MCP tools
     2) Execute tool calls over HTTP
     3) Feed tool outputs back to model context
+
+    ``user_id`` is forwarded to ``_get_tools_for_user`` so that tier-based
+    filtering works even when called outside the Quart request context.
     """
     if not MCP_ENABLED:
+        logger.info("[MCP] Orchestration skipped — MCP_ENABLED is False")
         return messages
 
     prompt = _last_user_prompt(messages)
     if not prompt:
+        logger.info("[MCP] Orchestration skipped — no user prompt found")
         return messages
 
     client = get_azure_client()
     working_messages: list[dict[str, Any]] = list(messages)
-    allowed_tools = await _get_tools_for_user()
+    allowed_tools = await _get_tools_for_user(user_id)
+    tool_names = [t.get("function", {}).get("name") for t in allowed_tools]
+    logger.info("[MCP] Orchestration start — user_id=%s, %d tools available: %s",
+                user_id, len(allowed_tools), tool_names)
 
-    for _ in range(MCP_TOOL_MAX_ROUNDS):
+    for round_idx in range(MCP_TOOL_MAX_ROUNDS):
         planning = await client.chat.completions.create(
             **_tool_completion_args(working_messages, tools=allowed_tools)
         )
 
         if not planning.choices:
+            logger.info("[MCP] Round %d — no choices from model", round_idx)
             break
 
         assistant_message = planning.choices[0].message
@@ -1054,7 +1076,11 @@ async def _run_mcp_tool_orchestration(
         ][:MCP_TOOL_MAX_CALLS_PER_ROUND]
 
         if not tool_calls:
+            logger.info("[MCP] Round %d — model chose no tool calls", round_idx)
             break
+
+        logger.info("[MCP] Round %d — model requested tools: %s", round_idx,
+                    [tc.function.name for tc in tool_calls])
 
         assistant_tool_message = {
             "role": "assistant",

@@ -69,19 +69,28 @@ export async function saveChat({
 export async function getChatById({
   id,
 }: { id: string }): Promise<Chat | null> {
-  const res = await proxyToBackend(`/sessions/${id}`);
+  let res: Response;
+  try {
+    res = await proxyToBackend(`/sessions/${id}`);
+  } catch {
+    return null;
+  }
   if (!res.ok) return null;
-  const data = await res.json();
-  return {
-    id: data.id,
-    title: data.title || "",
-    createdAt: data.created_at
-      ? new Date(data.created_at).getTime()
-      : Date.now(),
-    userId: data.userId || data.user_id || "",
-    visibility: "private",
-    status: data.status,
-  };
+  try {
+    const data = await res.json();
+    return {
+      id: data.id,
+      title: data.title || "",
+      createdAt: data.created_at
+        ? new Date(data.created_at).getTime()
+        : Date.now(),
+      userId: data.userId || data.user_id || "",
+      visibility: "private",
+      status: data.status,
+    };
+  } catch {
+    return null;
+  }
 }
 
 export async function getChatsByUserId({
@@ -95,15 +104,29 @@ export async function getChatsByUserId({
   startingAfter: string | null;
   endingBefore: string | null;
 }) {
-  const res = await proxyToBackend("/sessions");
+  let res: Response;
+  try {
+    res = await proxyToBackend("/sessions");
+  } catch (err) {
+    console.warn("getChatsByUserId: backend unreachable:", (err as Error).message);
+    return { chats: [], hasMore: false };
+  }
   if (!res.ok) return { chats: [], hasMore: false };
-  const sessions = (await res.json()) as Array<{
+
+  let sessions: Array<{
     id: string;
     title?: string | null;
     status?: string;
     created_at?: string;
     userId?: string;
   }>;
+  try {
+    sessions = await res.json();
+  } catch {
+    return { chats: [], hasMore: false };
+  }
+
+  if (!Array.isArray(sessions)) return { chats: [], hasMore: false };
 
   // Deduplicate by id (Cosmos can occasionally return dupes on revalidation)
   const seen = new Set<string>();
@@ -204,7 +227,12 @@ export async function saveMessages({
 export async function getMessagesByChatId({
   id,
 }: { id: string }): Promise<DBMessage[]> {
-  const res = await proxyToBackend(`/sessions/${id}/messages`);
+  let res: Response;
+  try {
+    res = await proxyToBackend(`/sessions/${id}/messages`);
+  } catch {
+    return [];
+  }
   if (!res.ok) return [];
   const apiMessages = (await res.json()) as Array<{
     id: string;

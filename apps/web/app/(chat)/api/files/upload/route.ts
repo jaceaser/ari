@@ -3,7 +3,6 @@ import { NextResponse } from "next/server";
 import { auth } from "@/app/(auth)/auth";
 import {
   getAuthenticatedJwt,
-  isExternalBackend,
 } from "@/lib/api-proxy";
 
 const ALLOWED_TYPES = new Set([
@@ -58,7 +57,7 @@ export async function POST(request: Request) {
       ""
     ).replace(/\/+$/, "");
 
-    if (!apiBaseUrl || !isExternalBackend()) {
+    if (!apiBaseUrl) {
       return NextResponse.json(
         { error: "File upload not configured — backend API URL not set" },
         { status: 503 },

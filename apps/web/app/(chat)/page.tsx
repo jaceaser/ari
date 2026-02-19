@@ -2,7 +2,7 @@ import { cookies } from "next/headers";
 import { Suspense } from "react";
 import { Chat } from "@/components/chat";
 import { DataStreamHandler } from "@/components/data-stream-handler";
-import { isExternalBackend, proxyToBackend } from "@/lib/api-proxy";
+import { proxyToBackend } from "@/lib/api-proxy";
 import { generateUUID } from "@/lib/utils";
 
 export default function Page() {
@@ -18,19 +18,17 @@ async function NewChatPage() {
   const id = generateUUID();
 
   // Create a backend session so the ID is registered before the first message
-  if (isExternalBackend()) {
-    try {
-      const res = await proxyToBackend("/sessions", {
-        method: "POST",
-        body: { id },
-      });
-      if (!res.ok) {
-        const text = await res.text().catch(() => "");
-        console.error("[page] Session creation failed:", res.status, text.slice(0, 200));
-      }
-    } catch (err) {
-      console.error("[page] Session creation error:", (err as Error).message);
+  try {
+    const res = await proxyToBackend("/sessions", {
+      method: "POST",
+      body: { id },
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      console.error("[page] Session creation failed:", res.status, text.slice(0, 200));
     }
+  } catch (err) {
+    console.error("[page] Session creation error:", (err as Error).message);
   }
 
   return (

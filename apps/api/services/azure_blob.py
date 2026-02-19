@@ -34,9 +34,10 @@ class AzureBlobService:
 
     _instance: Optional[AzureBlobService] = None
 
-    def __init__(self, account_name: str, account_key: str):
+    def __init__(self, account_name: str, account_key: str, custom_domain: str | None = None):
         self.account_name = account_name
         self.account_key = account_key
+        self.custom_domain = custom_domain
         self._client = None
         self._deps = None
 
@@ -52,6 +53,7 @@ class AzureBlobService:
 
         account_name = os.getenv("AZURE_BLOB_ACCOUNT_NAME", "").strip()
         account_key = os.getenv("AZURE_BLOB_ACCOUNT_KEY", "").strip()
+        custom_domain = os.getenv("AZURE_BLOB_CUSTOM_DOMAIN", "").strip() or None
 
         if not account_name or not account_key:
             logger.warning("Azure Blob env vars missing; blob service unavailable.")
@@ -63,7 +65,7 @@ class AzureBlobService:
             logger.warning("azure-storage-blob not installed; blob uploads disabled.")
             return None
 
-        cls._instance = cls(account_name=account_name, account_key=account_key)
+        cls._instance = cls(account_name=account_name, account_key=account_key, custom_domain=custom_domain)
         return cls._instance
 
     @property
@@ -93,7 +95,8 @@ class AzureBlobService:
             expiry=expiry_time,
         )
         encoded_name = urllib.parse.quote(file_name)
-        return f"https://{self.account_name}.blob.core.windows.net/{container_name}/{encoded_name}?{sas_token}"
+        host = self.custom_domain or f"{self.account_name}.blob.core.windows.net"
+        return f"https://{host}/{container_name}/{encoded_name}?{sas_token}"
 
     def upload_bytes(
         self,

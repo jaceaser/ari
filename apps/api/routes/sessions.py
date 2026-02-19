@@ -481,7 +481,7 @@ async def send_message(session_id: str):
 
             # MCP tool orchestration
             try:
-                completion_messages = await _run_mcp_tool_orchestration(normalized)
+                completion_messages = await _run_mcp_tool_orchestration(normalized, user_id=user_id)
                 # Collect tool results for lead run detection
                 for msg in completion_messages:
                     if msg.get("role") == "tool":
@@ -498,6 +498,7 @@ async def send_message(session_id: str):
                 messages=[],
                 stream=True,
                 max_tokens=16384,
+                temperature=0.3,
             )
 
             client = get_azure_client()

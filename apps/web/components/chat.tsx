@@ -49,7 +49,6 @@ export function Chat({
   autoResume: boolean;
 }) {
   const router = useRouter();
-  const useExternalBackend = Boolean(process.env.NEXT_PUBLIC_API_URL);
 
   const { visibilityType } = useChatVisibility({
     chatId: id,
@@ -100,40 +99,15 @@ export function Chat({
       return shouldContinue;
     },
     transport: new DefaultChatTransport({
-      api: useExternalBackend ? "/api/chat/openai" : "/api/chat",
+      api: "/api/chat/openai",
       fetch: fetchWithErrorHandlers,
       prepareSendMessagesRequest(request) {
-        if (useExternalBackend) {
-          return {
-            body: {
-              id: request.id,
-              session_id: id,
-              messages: request.messages,
-              stream: true,
-            },
-          };
-        }
-
-        const lastMessage = request.messages.at(-1);
-        const isToolApprovalContinuation =
-          lastMessage?.role !== "user" ||
-          request.messages.some((msg) =>
-            msg.parts?.some((part) => {
-              const state = (part as { state?: string }).state;
-              return (
-                state === "approval-responded" || state === "output-denied"
-              );
-            })
-          );
-
         return {
           body: {
             id: request.id,
-            ...(isToolApprovalContinuation
-              ? { messages: request.messages }
-              : { message: lastMessage }),
-            selectedVisibilityType: visibilityType,
-            ...request.body,
+            session_id: id,
+            messages: request.messages,
+            stream: true,
           },
         };
       },

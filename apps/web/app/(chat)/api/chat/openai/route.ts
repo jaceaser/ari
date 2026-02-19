@@ -4,9 +4,7 @@ import {
 } from "ai";
 
 import {
-  checkBackendConfig,
   getAuthenticatedJwt,
-  isExternalBackend,
 } from "@/lib/api-proxy";
 import {
   writeOpenAiSseToUiStream,
@@ -18,29 +16,6 @@ import { proxyToBackend } from "@/lib/api-proxy";
 
 type IncomingMessagePart = { type?: string; text?: string; url?: string; mediaType?: string };
 type IncomingMessage = { role?: string; parts?: IncomingMessagePart[] };
-type OpenAIMessage = { role: "system" | "user" | "assistant"; content: string };
-
-function isConversationRole(value: string): value is OpenAIMessage["role"] {
-  return value === "system" || value === "user" || value === "assistant";
-}
-
-function toOpenAIMessages(messages: IncomingMessage[]): OpenAIMessage[] {
-  const result: OpenAIMessage[] = [];
-  for (const message of messages) {
-    const role = message.role;
-    if (!role || !isConversationRole(role)) continue;
-
-    const text = (Array.isArray(message.parts) ? message.parts : [])
-      .filter((p) => p?.type === "text" && typeof p.text === "string")
-      .map((p) => p.text!.trim())
-      .filter(Boolean)
-      .join("\n");
-
-    if (!text) continue;
-    result.push({ role, content: text });
-  }
-  return result;
-}
 
 function getApiBaseUrl(): string | null {
   const url =
@@ -128,7 +103,10 @@ export async function POST(request: Request) {
   try {
     requestBody = (await request.json()) as typeof requestBody;
   } catch {
-    return new Response("Invalid JSON request body", { status: 400 });
+    return Response.json(
+      { code: "bad_request:api", cause: "Invalid JSON request body" },
+      { status: 400 }
+    );
   }
 
   const sourceMessages = Array.isArray(requestBody.messages)
@@ -139,107 +117,87 @@ export async function POST(request: Request) {
 
   const apiBaseUrl = getApiBaseUrl();
   if (!apiBaseUrl) {
-    return new Response(
-      "Missing backend URL. Set API_BASE_URL or NEXT_PUBLIC_API_URL.",
-      { status: 500 }
+    return Response.json(
+      { code: "bad_request:api", cause: "Backend API URL not configured. Set API_BASE_URL or NEXT_PUBLIC_API_URL." },
+      { status: 503 }
     );
   }
 
-  // ── Session-based path: route to /sessions/:id/messages ──
-  // Requires both NEXT_PUBLIC_API_URL and JWT_SECRET to be configured.
   const sessionId = requestBody.session_id;
-  const jwtConfigured = Boolean((process.env.JWT_SECRET || "").trim());
-  if (sessionId && isExternalBackend() && jwtConfigured) {
-    const content = extractLastUserText(sourceMessages);
-    if (!content) {
-      return new Response("No user message content found", { status: 400 });
-    }
-    const { images, documents } = extractFileUrls(sourceMessages);
-
-    let jwt: string;
-    try {
-      jwt = await getAuthenticatedJwt();
-    } catch (err) {
-      console.error("[openai/route] Auth failed:", (err as Error).message);
-      return new Response("Authentication required", { status: 401 });
-    }
-
-    const upstreamResponse = await fetch(
-      `${apiBaseUrl}/sessions/${sessionId}/messages`,
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${jwt}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          content,
-          ...(images.length > 0 && { images }),
-          ...(documents.length > 0 && { documents }),
-        }),
-      }
+  if (!sessionId) {
+    return Response.json(
+      { code: "bad_request:api", cause: "Missing session_id in request body" },
+      { status: 400 }
     );
+  }
 
-    if (!upstreamResponse.ok) {
-      const text = await upstreamResponse.text();
-      return new Response(text || "Upstream API request failed", {
-        status: upstreamResponse.status,
-      });
-    }
+  const content = extractLastUserText(sourceMessages);
+  if (!content) {
+    return Response.json(
+      { code: "bad_request:api", cause: "No user message content found" },
+      { status: 400 }
+    );
+  }
 
-    if (!upstreamResponse.body) {
-      return new Response("Empty upstream response body", { status: 502 });
-    }
+  const { images, documents } = extractFileUrls(sourceMessages);
 
-    // Set session title from first user message (fire-and-forget)
-    if (isFirstUserMessage(sourceMessages)) {
-      const title = deriveTitle(content);
-      if (title) {
-        setSessionTitle(sessionId, title);
-      }
-    }
+  let jwt: string;
+  try {
+    jwt = await getAuthenticatedJwt();
+  } catch (err) {
+    console.error("[openai/route] Auth failed:", (err as Error).message);
+    return Response.json(
+      { code: "unauthorized:chat", cause: "Authentication required. Ensure JWT_SECRET is configured." },
+      { status: 401 }
+    );
+  }
 
-    const stream = createUIMessageStream({
-      execute: async ({ writer }) => {
-        await writeOpenAiSseToUiStream(upstreamResponse.body!, writer);
+  const upstreamResponse = await fetch(
+    `${apiBaseUrl}/sessions/${sessionId}/messages`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${jwt}`,
+        "Content-Type": "application/json",
       },
-    });
-
-    return createUIMessageStreamResponse({ stream });
-  }
-
-  // ── Legacy path: route to /v1/chat/completions ──
-  const messages = toOpenAIMessages(sourceMessages);
-  if (messages.length === 0) {
-    return new Response("No valid conversation messages found", { status: 400 });
-  }
-
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-  };
-  if (process.env.BACKEND_API_BEARER_TOKEN) {
-    headers.Authorization = `Bearer ${process.env.BACKEND_API_BEARER_TOKEN}`;
-  }
-
-  const upstreamResponse = await fetch(`${apiBaseUrl}/v1/chat/completions`, {
-    method: "POST",
-    headers,
-    body: JSON.stringify({
-      model: "gpt-5.2-chat",
-      messages,
-      stream: true,
-    }),
-  });
+      body: JSON.stringify({
+        content,
+        ...(images.length > 0 && { images }),
+        ...(documents.length > 0 && { documents }),
+      }),
+    }
+  );
 
   if (!upstreamResponse.ok) {
     const text = await upstreamResponse.text();
-    return new Response(text || "Upstream API request failed", {
-      status: upstreamResponse.status,
-    });
+    // Try to parse backend error JSON for better error messages
+    try {
+      const parsed = JSON.parse(text);
+      return Response.json(
+        { code: "bad_request:api", cause: parsed.detail || parsed.error || text },
+        { status: upstreamResponse.status }
+      );
+    } catch {
+      return Response.json(
+        { code: "bad_request:api", cause: text || "Upstream API request failed" },
+        { status: upstreamResponse.status }
+      );
+    }
   }
 
   if (!upstreamResponse.body) {
-    return new Response("Empty upstream response body", { status: 502 });
+    return Response.json(
+      { code: "bad_request:api", cause: "Empty upstream response body" },
+      { status: 502 }
+    );
+  }
+
+  // Set session title from first user message (fire-and-forget)
+  if (isFirstUserMessage(sourceMessages)) {
+    const title = deriveTitle(content);
+    if (title) {
+      setSessionTitle(sessionId, title);
+    }
   }
 
   const stream = createUIMessageStream({

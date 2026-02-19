@@ -1,0 +1,1362 @@
+"""
+ARI MCP Tool Server (Milestone 3 slice)
+
+This server exposes route-oriented tools inspired by the legacy ChatHandler.
+It is intended to be called by apps/api only.
+"""
+
+from __future__ import annotations
+
+import logging
+import os
+import random
+import re
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Optional
+
+from dotenv import load_dotenv
+from pydantic import BaseModel, Field
+from quart import Quart, request
+
+from legacy_tools import build_retrieval_query, extract_first_url, infer_lead_type_from_url
+from schemas import ToolRequest
+
+# Structured logging setup
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    datefmt="%Y-%m-%dT%H:%M:%S",
+)
+logger = logging.getLogger("mcp")
+
+try:
+    import certifi
+except Exception:
+    certifi = None
+
+try:
+    import httpx
+except Exception:
+    httpx = None
+
+try:
+    from azure.cosmos.aio import CosmosClient
+except Exception:
+    CosmosClient = None
+
+
+def _load_env_file(path: Path) -> None:
+    """
+    Load key/value pairs from local .env without strict dotenv parsing.
+    This tolerates complex quoted prompt lines in config values.
+    """
+    if not path.exists():
+        return
+
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except Exception:
+        return
+
+    for line in lines:
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or "=" not in stripped:
+            continue
+
+        key, raw_value = stripped.split("=", 1)
+        key = key.strip()
+        if not key or not key.replace("_", "").isalnum() or key[0].isdigit():
+            continue
+
+        value = raw_value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+            value = value[1:-1]
+
+        os.environ.setdefault(key, value)
+
+
+LOCAL_ENV_PATH = Path(__file__).resolve().parent / ".env"
+
+# Precedence: process env > apps/mcp/.env
+# Custom parser handles complex quoted JSON values that python-dotenv can't parse
+_load_env_file(LOCAL_ENV_PATH)
+if LOCAL_ENV_PATH.exists():
+    import warnings
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", module="dotenv")
+        load_dotenv(LOCAL_ENV_PATH, override=False)
+
+app = Quart(__name__)
+
+ROUTE_KEYWORDS: dict[str, set[str]] = {
+    "Leads": {
+        "lead",
+        "seller",
+        "zillow",
+        "offmarket",
+        "off-market",
+        "distressed",
+        "preforeclosure",
+        "pre-foreclosure",
+        "fsbo",
+    },
+    "Comps": {
+        "comp",
+        "comps",
+        "comparable",
+        "arv",
+        "after repair value",
+        "valuation",
+        "estimate value",
+    },
+    "Attorneys": {"attorney", "attorneys", "lawyer", "probate", "eviction", "legal"},
+    "Strategy": {"strategy", "plan", "business plan", "approach", "roadmap", "deal flow"},
+    "Education": {"how", "explain", "learn", "education", "what is", "why", "guide"},
+    "Contracts": {"contract", "assignment", "purchase agreement", "clause", "legal doc"},
+    "Buyers": {"buyer", "buyers list", "cash buyer", "investor buyer", "disposition"},
+}
+
+STATE_ABBREVIATIONS: dict[str, str] = {
+    "alabama": "AL",
+    "alaska": "AK",
+    "arizona": "AZ",
+    "arkansas": "AR",
+    "california": "CA",
+    "colorado": "CO",
+    "connecticut": "CT",
+    "delaware": "DE",
+    "florida": "FL",
+    "georgia": "GA",
+    "hawaii": "HI",
+    "idaho": "ID",
+    "illinois": "IL",
+    "indiana": "IN",
+    "iowa": "IA",
+    "kansas": "KS",
+    "kentucky": "KY",
+    "louisiana": "LA",
+    "maine": "ME",
+    "maryland": "MD",
+    "massachusetts": "MA",
+    "michigan": "MI",
+    "minnesota": "MN",
+    "mississippi": "MS",
+    "missouri": "MO",
+    "montana": "MT",
+    "nebraska": "NE",
+    "nevada": "NV",
+    "new hampshire": "NH",
+    "new jersey": "NJ",
+    "new mexico": "NM",
+    "new york": "NY",
+    "north carolina": "NC",
+    "north dakota": "ND",
+    "ohio": "OH",
+    "oklahoma": "OK",
+    "oregon": "OR",
+    "pennsylvania": "PA",
+    "rhode island": "RI",
+    "south carolina": "SC",
+    "south dakota": "SD",
+    "tennessee": "TN",
+    "texas": "TX",
+    "utah": "UT",
+    "vermont": "VT",
+    "virginia": "VA",
+    "washington": "WA",
+    "west virginia": "WV",
+    "wisconsin": "WI",
+    "wyoming": "WY",
+}
+
+ADDRESS_REGEX = re.compile(
+    r"(?P<addr>\b\d{1,6}\s+[A-Za-z0-9#.\-'\s]+?\s+"
+    r"(?:Ave|Avenue|St|Street|Rd|Road|Blvd|Boulevard|Ln|Lane|Dr|Drive|Ct|Court|Cir|Circle|Pl|Place|Way|Pkwy|Parkway|Ter|Terrace)\b"
+    r"(?:\s*(?:#|Unit|Apt|Suite)\s*[A-Za-z0-9\-]+)?"
+    r"(?:\s*,?\s*[A-Za-z.\-'\s]+)?\s*,?\s*[A-Z]{2}\s+\d{5}(?:-\d{4})?\b)",
+    re.IGNORECASE,
+)
+
+
+def _env(name: str, default: str = "") -> str:
+    value = os.getenv(name)
+    return value if value is not None else default
+
+
+def _is_configured(*keys: str) -> bool:
+    return all(bool(_env(key).strip()) for key in keys)
+
+
+def _normalize_state(state: str) -> str:
+    text = (state or "").strip()
+    if len(text) == 2:
+        return text.upper()
+
+    normalized = " ".join(text.lower().split())
+    return STATE_ABBREVIATIONS.get(normalized, text.upper())
+
+
+INTEGRATION_CONFIG = {
+    "azure_openai": _is_configured("AZURE_OPENAI_ENDPOINT", "AZURE_OPENAI_KEY"),
+    "azure_search": _is_configured("AZURE_SEARCH_API_ENDPOINT", "AZURE_SEARCH_KEY"),
+    "azure_cosmos": _is_configured("AZURE_COSMOSDB_ACCOUNT", "AZURE_COSMOSDB_ACCOUNT_KEY"),
+    "azure_cosmos_buyers": _is_configured(
+        "AZURE_COSMOSDB_ACCOUNT",
+        "AZURE_COSMOSDB_ACCOUNT_KEY",
+        "AZURE_COSMOSDB_BUYERS_DATABASE",
+        "AZURE_COSMOSDB_NATIONWIDE_BUYERS_CONTAINER",
+    ),
+    "bricked": _is_configured("BRICKED_API_KEY"),
+    "stripe": _is_configured("STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET"),
+}
+
+
+ROUTE_PROMPTS: dict[str, str] = {
+    "Classification": _env("AZURE_OPENAI_CLASSIFICATION_SYSTEM_MESSAGE"),
+    "Education": _env("AZURE_OPENAI_SYSTEM_MESSAGE"),
+    "Leads": _env("AZURE_OPENAI_LEADS_SYSTEM_MESSAGE"),
+    "LeadsLink": _env("AZURE_OPENAI_LEAD_LINK_MESSAGE"),
+    "Comps": _env("AZURE_OPENAI_COMP_PROPERTIES_MESSAGE"),
+    "CompsLink": _env("AZURE_OPENAI_COMP_PROPERTIES_LINK_MESSAGE"),
+    "Attorneys": _env("AZURE_OPENAI_ATTORNEYS_SYSTEM_MESSAGE"),
+    "AttorneyLink": _env("AZURE_OPENAI_ATTORNEY_LINK_MESSAGE"),
+    "Strategy": _env("AZURE_OPENAI_STRATEGY_PROMPT"),
+    "Contracts": _env("AZURE_OPENAI_CONTRACTS_MESSAGE"),
+    "ContractsExpansion": _env("AZURE_OPENAI_CONTRACTS_EXPANSION_MESSAGE"),
+    "Buyers": _env("AZURE_OPENAI_BUYERS_SYSTEM_MESSAGE"),
+    "Offtopic": _env("AZURE_OPENAI_OFFTOPIC_MESSAGE"),
+    "CityState": _env("AZURE_OPENAI_CITY_STATE_PROMPT"),
+}
+
+
+def _latest_user_prompt(req: ToolRequest) -> str:
+    if req.prompt and req.prompt.strip():
+        return req.prompt.strip()
+
+    for message in reversed(req.messages):
+        if message.get("role") != "user":
+            continue
+        content = message.get("content")
+        if isinstance(content, str) and content.strip():
+            return content.strip()
+    return ""
+
+
+def _extract_city_state(text: str) -> tuple[Optional[str], Optional[str]]:
+    if not text:
+        return None, None
+
+    # Preposition-anchored extraction: "in {city}, {state}"
+    # This avoids capturing the entire sentence before the comma
+    match = re.search(
+        r"\bin\s+([A-Za-z][A-Za-z .'-]{1,60}?),\s*([A-Za-z]{2})\b",
+        text, re.IGNORECASE,
+    )
+    if match:
+        return match.group(1).strip(), _normalize_state(match.group(2))
+
+    # "in {city}, {full state name}"
+    match = re.search(
+        r"\bin\s+([A-Za-z][A-Za-z .'-]{1,60}?),\s*"
+        r"(Alabama|Alaska|Arizona|Arkansas|California|Colorado|Connecticut|Delaware|Florida|Georgia|Hawaii|Idaho|Illinois|Indiana|Iowa|Kansas|Kentucky|Louisiana|Maine|Maryland|Massachusetts|Michigan|Minnesota|Mississippi|Missouri|Montana|Nebraska|Nevada|New Hampshire|New Jersey|New Mexico|New York|North Carolina|North Dakota|Ohio|Oklahoma|Oregon|Pennsylvania|Rhode Island|South Carolina|South Dakota|Tennessee|Texas|Utah|Vermont|Virginia|Washington|West Virginia|Wisconsin|Wyoming)\b",
+        text, re.IGNORECASE,
+    )
+    if match:
+        return match.group(1).strip(), _normalize_state(match.group(2))
+
+    # "for/near/around {city}, {state}"
+    match = re.search(
+        r"\b(?:for|near|around)\s+([A-Za-z][A-Za-z .'-]{1,60}?),\s*([A-Za-z]{2})\b",
+        text, re.IGNORECASE,
+    )
+    if match:
+        return match.group(1).strip(), _normalize_state(match.group(2))
+
+    # Short location: 1-4 words before ", XX" (case-insensitive)
+    match = re.search(
+        r"\b([A-Za-z][A-Za-z .'-]{1,40}?)\s*,\s*([A-Za-z]{2})\b",
+        text.strip(), re.IGNORECASE,
+    )
+    if match:
+        # Reject if the captured "city" looks like a full sentence (has common verbs/articles)
+        city_candidate = match.group(1).strip()
+        noise_words = {"can", "get", "find", "show", "list", "give", "what", "the", "a", "me", "i"}
+        first_word = city_candidate.split()[0].lower()
+        if first_word not in noise_words:
+            return city_candidate, _normalize_state(match.group(2))
+
+    return None, None
+
+
+def _extract_address_candidates(text: str) -> list[str]:
+    if not text:
+        return []
+
+    pattern = re.compile(
+        r"\b\d{1,6}\s+[A-Za-z0-9 .'-]+\s(?:St|Street|Ave|Avenue|Rd|Road|Blvd|Drive|Dr|Lane|Ln|Way|Ct|Court)\b",
+        re.IGNORECASE,
+    )
+
+    seen: set[str] = set()
+    results: list[str] = []
+    for match in pattern.findall(text):
+        normalized = " ".join(match.split()).strip()
+        key = normalized.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        results.append(normalized)
+
+    return results[:5]
+
+
+def _extract_full_address(text: str) -> Optional[str]:
+    if not text:
+        return None
+
+    match = ADDRESS_REGEX.search(text)
+    if match:
+        return " ".join(match.group("addr").split()).strip()
+
+    candidates = _extract_address_candidates(text)
+    if candidates:
+        return candidates[0]
+
+    return None
+
+
+def _parse_positive_int(value: Any, default: int, min_value: int = 1, max_value: int = 100) -> int:
+    try:
+        parsed = int(value)
+    except Exception:
+        return default
+    return max(min_value, min(max_value, parsed))
+
+
+def _classify_prompt(prompt: str) -> dict[str, Any]:
+    text = prompt.lower()
+    scores: dict[str, int] = {}
+
+    for route, keywords in ROUTE_KEYWORDS.items():
+        score = 0
+        for token in keywords:
+            if token in text:
+                score += 1
+        scores[route] = score
+
+    if max(scores.values(), default=0) == 0:
+        route = "Education"
+    else:
+        route = max(scores, key=scores.get)
+
+    if any(token in text for token in {"weather", "sports score", "joke", "recipe"}):
+        route = "Offtopic"
+
+    return {
+        "route": route,
+        "scores": scores,
+        "explanation": "Keyword-based classifier; API model may combine multiple tool outputs.",
+        "route_system_prompt_available": bool(ROUTE_PROMPTS.get(route)),
+        "classification_prompt": ROUTE_PROMPTS.get("Classification", ""),
+    }
+
+
+def _education_payload(prompt: str) -> dict[str, Any]:
+    retrieval_query = build_retrieval_query(prompt)
+    tokens = [t for t in retrieval_query.split() if len(t) > 3][:8]
+    return {
+        "route": "Education",
+        "retrieval_query": retrieval_query,
+        "subtopics": tokens,
+        "route_system_prompt": ROUTE_PROMPTS.get("Education", ""),
+        "context_hint": (
+            "User asked for educational context. Explain concepts, assumptions, and "
+            "tradeoffs in plain language before tactical recommendations."
+        ),
+    }
+
+
+def _comps_payload(prompt: str) -> dict[str, Any]:
+    addresses = _extract_address_candidates(prompt)
+    return {
+        "route": "Comps",
+        "retrieval_query": build_retrieval_query(prompt),
+        "address_candidates": addresses,
+        "route_system_prompt": ROUTE_PROMPTS.get("Comps", ""),
+        "comp_link_prompt": ROUTE_PROMPTS.get("CompsLink", ""),
+        "context_hint": (
+            "Run comparable analysis: verify subject property, select recent and nearby "
+            "comps, normalize condition/features, and present valuation range."
+        ),
+        "workflow": [
+            "Validate subject address",
+            "Find recent nearby comps",
+            "Adjust for beds/baths/sqft/condition",
+            "Provide value range with confidence notes",
+        ],
+    }
+
+
+_ZILLOW_URL_TEMPLATES: dict[str, str] = {
+    "fsbo": (
+        "https://www.zillow.com/%%SLUG%%/?searchQueryState="
+        '{"pagination":{},"filterState":{"fsbo":{"value":true},"fsba":{"value":false},'
+        '"price":{"min":null},"mp":{"min":null},"tow":{"value":false},"con":{"value":false},'
+        '"apa":{"value":false},"apco":{"value":false},"sort":{"value":"globalrelevanceex"},'
+        '"mf":{"value":false},"land":{"value":false},"manu":{"value":false},"auc":{"value":false},'
+        '"fore":{"value":false},"nc":{"value":false},"cmsn":{"value":false},'
+        '"doz":{"value":"36m"}},"isListVisible":true,"category":"cat2"}'
+    ),
+    "pre-foreclosure": (
+        "https://www.zillow.com/%%SLUG%%/?searchQueryState="
+        '{"pagination":{},"filterState":{"price":{"min":null},"mp":{"min":null},'
+        '"tow":{"value":false},"con":{"value":false},"apa":{"value":false},'
+        '"apco":{"value":false},"sort":{"value":"globalrelevanceex"},"nc":{"value":false},'
+        '"cmsn":{"value":false},"mf":{"value":false},"land":{"value":false},'
+        '"manu":{"value":false},"doz":{"value":"30"},"fsba":{"value":false},'
+        '"fsbo":{"value":false},"fore":{"value":false},'
+        '"pf":{"value":true}},"isListVisible":true,"category":"cat2"}'
+    ),
+    "fixer-upper": (
+        "https://www.zillow.com/%%SLUG%%/fixer-upper_att/?searchQueryState="
+        '{"pagination":{},"filterState":{"sort":{"value":"globalrelevanceex"},'
+        '"price":{"min":null,"max":650000},"doz":{"value":"90"},'
+        '"att":{"value":"fixer upper"}},"isListVisible":true,"category":"cat1"}'
+    ),
+    "as-is": (
+        "https://www.zillow.com/%%SLUG%%/?searchQueryState="
+        '{"pagination":{},"filterState":{"sort":{"value":"globalrelevanceex"},'
+        '"price":{"min":null,"max":null},"doz":{"value":"36m"},'
+        '"att":{"value":"as is"}},"isListVisible":true,"category":"cat1"}'
+    ),
+    "tired-landlords": (
+        "https://www.zillow.com/%%SLUG%%/rentals/?searchQueryState="
+        '{"pagination":{},"filterState":{"fr":{"value":true},"fsba":{"value":false},'
+        '"fsbo":{"value":false},"nc":{"value":false},"cmsn":{"value":false},'
+        '"auc":{"value":false},"fore":{"value":false},"price":{"max":626745},'
+        '"mp":{"max":3000},"ah":{"value":true},"doz":{"value":"36m"},'
+        '"att":{"value":""},"apco":{"value":false},"tow":{"value":false},'
+        '"apa":{"value":false},"con":{"value":false}},"isListVisible":true}'
+    ),
+    "subject-to": (
+        "https://www.zillow.com/%%SLUG%%/?searchQueryState="
+        '{"pagination":{},"filterState":{"price":{"min":50000,"max":650000},'
+        '"mp":{"min":258,"max":3359},"tow":{"value":false},"con":{"value":false},'
+        '"apa":{"value":false},"apco":{"value":false},"sort":{"value":"globalrelevanceex"},'
+        '"nc":{"value":false},"fore":{"value":false},"auc":{"value":false},'
+        '"cmsn":{"value":false},"mf":{"value":false},"land":{"value":false},'
+        '"manu":{"value":false},"doz":{"value":"6m"},"built":{"min":2015},'
+        '"ac":{"value":true}},"category":"cat1","isListVisible":true}'
+    ),
+    "land": (
+        "https://www.zillow.com/%%SLUG%%/?searchQueryState="
+        '{"pagination":{},"filterState":{"sort":{"value":"globalrelevanceex"},'
+        '"doz":{"value":"90"},"nc":{"value":false},"fore":{"value":false},'
+        '"auc":{"value":false},"cmsn":{"value":false},"sf":{"value":false},'
+        '"tow":{"value":false},"mf":{"value":false},"con":{"value":false},'
+        '"apa":{"value":false},"manu":{"value":false},"apco":{"value":false},'
+        '"lot":{"min":21780,"max":4356000}},"isListVisible":true,"category":"cat1"}'
+    ),
+}
+
+# Keywords that map to a template
+_LEAD_TYPE_KEYWORDS: dict[str, list[str]] = {
+    "fsbo": ["fsbo", "for sale by owner", "by owner"],
+    "pre-foreclosure": ["pre-foreclosure", "preforeclosure", "pre foreclosure", "auction"],
+    "fixer-upper": ["fixer", "fixer-upper", "fixer upper", "rehab", "wholesale", "distressed"],
+    "as-is": ["as-is", "as is"],
+    "tired-landlords": ["tired landlord", "landlord", "rental"],
+    "subject-to": ["subject to", "subject-to", "subto", "sub to", "sub2"],
+    "land": ["land", "lot", "vacant land", "acreage"],
+}
+
+
+def _infer_lead_type_from_prompt(prompt: str) -> str:
+    """Infer lead type from user prompt text."""
+    lower = prompt.lower()
+    for lead_type, keywords in _LEAD_TYPE_KEYWORDS.items():
+        for kw in keywords:
+            if kw in lower:
+                return lead_type
+    # Default to fixer-upper / wholesale — most common investor search
+    return "fixer-upper"
+
+
+def _build_zillow_url(city: Optional[str], state: Optional[str], lead_type: str) -> Optional[str]:
+    """Build a Zillow search URL from city/state and lead type."""
+    if not city:
+        return None
+    template = _ZILLOW_URL_TEMPLATES.get(lead_type)
+    if not template:
+        return None
+    # Build slug: "san antonio-tx" format
+    slug = city.lower().replace(" ", "-")
+    if state:
+        slug = f"{slug}-{state.lower()}"
+    url = template.replace("%%SLUG%%", slug)
+
+    # Inject usersSearchTerm into searchQueryState so Zillow resolves the
+    # correct location instead of falling back to the proxy IP's geolocation.
+    search_term = f"{city}, {state.upper()}" if state else city
+    url = url.replace(
+        '"isListVisible":true',
+        f'"usersSearchTerm":"{search_term}","isListVisible":true',
+    )
+    return url
+
+
+def _leads_payload(prompt: str) -> dict[str, Any]:
+    detected_url = extract_first_url(prompt)
+    lead_type = infer_lead_type_from_url(detected_url) if detected_url else "Unknown"
+    return {
+        "route": "Leads",
+        "retrieval_query": build_retrieval_query(prompt),
+        "detected_url": detected_url,
+        "lead_type": lead_type,
+        "route_system_prompt": ROUTE_PROMPTS.get("Leads", ""),
+        "lead_link_prompt": ROUTE_PROMPTS.get("LeadsLink", ""),
+        "context_hint": (
+            "Lead generation route. Prioritize seller motivation signals, list hygiene, "
+            "and next best outreach actions."
+        ),
+    }
+
+
+def _attorneys_payload(prompt: str) -> dict[str, Any]:
+    city, state = _extract_city_state(prompt)
+    return {
+        "route": "Attorneys",
+        "city": city,
+        "state": state,
+        "retrieval_query": build_retrieval_query(prompt),
+        "route_system_prompt": ROUTE_PROMPTS.get("Attorneys", ""),
+        "attorney_link_prompt": ROUTE_PROMPTS.get("AttorneyLink", ""),
+        "city_state_prompt": ROUTE_PROMPTS.get("CityState", ""),
+        "context_hint": (
+            "Attorney route. Focus on relevance to real-estate investing workflows "
+            "(probate, foreclosure, eviction, title)."
+        ),
+    }
+
+
+def _buyers_payload(prompt: str) -> dict[str, Any]:
+    city, state = _extract_city_state(prompt)
+    return {
+        "route": "Buyers",
+        "city": city,
+        "state": state,
+        "retrieval_query": build_retrieval_query(prompt),
+        "route_system_prompt": ROUTE_PROMPTS.get("Buyers", ""),
+        "context_hint": (
+            "Buyer route. Prioritize active cash buyers, match buy box criteria, and "
+            "suggest disposition sequencing."
+        ),
+    }
+
+
+def _contracts_payload(prompt: str) -> dict[str, Any]:
+    expanded_prompt = (
+        "Review this real-estate contract request and provide: "
+        "1) key clauses to include, 2) risk flags, 3) negotiation levers, "
+        "4) state-specific caveats to verify with counsel.\n\n"
+        f"User request: {prompt}"
+    )
+    return {
+        "route": "Contracts",
+        "retrieval_query": build_retrieval_query(prompt),
+        "route_system_prompt": ROUTE_PROMPTS.get("Contracts", ""),
+        "contracts_expansion_prompt": ROUTE_PROMPTS.get("ContractsExpansion", ""),
+        "expanded_prompt": expanded_prompt,
+        "context_hint": "Contracts route. Be explicit about legal uncertainty and attorney review boundaries.",
+    }
+
+
+def _strategy_payload(prompt: str) -> dict[str, Any]:
+    return {
+        "route": "Strategy",
+        "retrieval_query": build_retrieval_query(prompt),
+        "route_system_prompt": ROUTE_PROMPTS.get("Strategy", ""),
+        "context_hint": (
+            "Strategy route. Return phased plan (0-30, 31-90, 90+) with KPI checkpoints, "
+            "constraints, and execution risks."
+        ),
+    }
+
+
+def _offtopic_payload(prompt: str) -> dict[str, Any]:
+    return {
+        "route": "Offtopic",
+        "route_system_prompt": ROUTE_PROMPTS.get("Offtopic", ""),
+        "context_hint": (
+            "User request appears off-domain. Answer helpfully, then steer back to ARI "
+            "core areas (leads, comps, valuation, contracts, buyers)."
+        ),
+        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "prompt": prompt,
+    }
+
+
+def _pick_details(details: dict[str, Any]) -> dict[str, Any]:
+    data = details or {}
+    return {
+        "bedrooms": data.get("bedrooms"),
+        "bathrooms": data.get("bathrooms"),
+        "squareFeet": data.get("squareFeet"),
+        "yearBuilt": data.get("yearBuilt"),
+        "lotSquareFeet": data.get("lotSquareFeet"),
+        "stories": data.get("stories"),
+        "lastSaleDate": data.get("lastSaleDate"),
+        "lastSaleAmount": data.get("lastSaleAmount"),
+        "daysOnMarket": data.get("daysOnMarket"),
+        "marketStatus": data.get("marketStatus"),
+    }
+
+
+def _trim_bricked_payload(payload: dict[str, Any], full_address: str, max_comps: int) -> dict[str, Any]:
+    prop = payload.get("property") or {}
+    prop_addr = (prop.get("address") or {}).get("fullAddress") or full_address
+
+    comps_out: list[dict[str, Any]] = []
+    for comp in (payload.get("comps") or [])[:max_comps]:
+        comp_addr = (comp.get("address") or {}).get("fullAddress")
+        comps_out.append(
+            {
+                "address": comp_addr,
+                "details": _pick_details(comp.get("details") or {}),
+                "adjusted_value": comp.get("adjusted_value"),
+                "selected": comp.get("selected"),
+                "compType": comp.get("compType"),
+                "listingType": comp.get("listingType"),
+            }
+        )
+
+    return {
+        "subject": {
+            "address": prop_addr,
+            "details": _pick_details(prop.get("details") or {}),
+            "latitude": prop.get("latitude"),
+            "longitude": prop.get("longitude"),
+        },
+        "arv": payload.get("arv"),
+        "cmv": payload.get("cmv"),
+        "shareLink": payload.get("shareLink"),
+        "dashboardLink": payload.get("dashboardLink"),
+        "comps": comps_out,
+    }
+
+
+def _normalize_city_state(
+    prompt: str, arguments: dict[str, Any]
+) -> tuple[Optional[str], Optional[str], str]:
+    from_prompt_city, from_prompt_state = _extract_city_state(prompt)
+    city = str(arguments.get("city") or from_prompt_city or "").strip()
+    raw_state = str(arguments.get("state") or from_prompt_state or "").strip()
+    state = _normalize_state(raw_state) if raw_state else None
+
+    source = "arguments" if arguments.get("city") or arguments.get("state") else "prompt"
+    if not city or not state:
+        source = "not_found"
+
+    return (city or None, state, source)
+
+
+def _format_phone(raw_phone: Any) -> str:
+    if isinstance(raw_phone, list):
+        return ", ".join(str(v).strip() for v in raw_phone if str(v).strip())
+    if raw_phone is None:
+        return ""
+    return str(raw_phone).strip()
+
+
+def _build_buyer_preview_rows(items: list[dict[str, Any]], limit: int = 15) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for buyer in items[:limit]:
+        full_name = (
+            buyer.get("fullName")
+            or buyer.get("Full Name")
+            or (
+                f"{(buyer.get('firstName') or buyer.get('First Name') or '').strip()} "
+                f"{(buyer.get('lastName') or buyer.get('Last Name') or '').strip()}"
+            ).strip()
+        )
+
+        phone = _format_phone(
+            buyer.get("Phones_Formatted")
+            or buyer.get("Phones")
+            or buyer.get("phone")
+        )
+        email = str(buyer.get("Email") or buyer.get("email") or "").strip()
+
+        rows.append({"Name": full_name, "Phone": phone, "Email": email})
+    return rows
+
+
+async def _query_buyers(
+    container_client: Any,
+    city: str,
+    state: str,
+    sample_size: int,
+    use_partition_key: bool,
+) -> tuple[list[dict[str, Any]], int, int]:
+    city_value = city.lower().strip()
+    state_value = state.upper().strip()
+
+    count_query = """
+        SELECT VALUE COUNT(1) FROM c
+        WHERE CONTAINS(LOWER(c.cities), @city)
+        AND c.state = @state
+    """
+    count_params = [
+        {"name": "@city", "value": city_value},
+        {"name": "@state", "value": state_value},
+    ]
+
+    query_kwargs: dict[str, Any] = {"max_item_count": 1, "continuation_token_limit": 8}
+    if use_partition_key:
+        query_kwargs["partition_key"] = state_value
+
+    total_count = 0
+    count_iter = container_client.query_items(
+        query=count_query,
+        parameters=count_params,
+        **query_kwargs,
+    )
+    async for item in count_iter:
+        try:
+            total_count = int(item)
+        except Exception:
+            total_count = 0
+        break
+
+    max_offset = min(500, max(0, total_count - sample_size))
+    offset = 0 if total_count <= sample_size else random.randint(0, max_offset)
+
+    data_query = """
+        SELECT
+            c["First Name"] AS "First Name",
+            c["Last Name"] AS "Last Name",
+            c["Full Name"] AS "Full Name",
+            c.Phones_Formatted AS Phones,
+            c.Email
+        FROM c
+        WHERE CONTAINS(LOWER(c.cities), @city)
+        AND c.state = @state
+        ORDER BY c.id
+        OFFSET @offset LIMIT @sample_size
+    """
+    data_params = [
+        {"name": "@city", "value": city_value},
+        {"name": "@state", "value": state_value},
+        {"name": "@offset", "value": offset},
+        {"name": "@sample_size", "value": sample_size},
+    ]
+
+    data_kwargs: dict[str, Any] = {
+        "max_item_count": sample_size,
+        "continuation_token_limit": 8,
+    }
+    if use_partition_key:
+        data_kwargs["partition_key"] = state_value
+
+    items: list[dict[str, Any]] = []
+    results_iter = container_client.query_items(
+        query=data_query,
+        parameters=data_params,
+        **data_kwargs,
+    )
+    async for item in results_iter:
+        items.append(item)
+
+    return items, total_count, offset
+
+
+async def _fetch_buyers_from_cosmos(city: str, state: str, sample_size: int = 50) -> dict[str, Any]:
+    if CosmosClient is None:
+        return {"ok": False, "error": "azure-cosmos package is not installed in apps/mcp."}
+    if certifi is None:
+        return {"ok": False, "error": "certifi package is not installed in apps/mcp."}
+
+    required_keys = [
+        "AZURE_COSMOSDB_ACCOUNT",
+        "AZURE_COSMOSDB_ACCOUNT_KEY",
+        "AZURE_COSMOSDB_BUYERS_DATABASE",
+        "AZURE_COSMOSDB_NATIONWIDE_BUYERS_CONTAINER",
+    ]
+    missing = [key for key in required_keys if not _env(key).strip()]
+    if missing:
+        return {"ok": False, "error": f"Missing Cosmos config: {', '.join(missing)}"}
+
+    account = _env("AZURE_COSMOSDB_ACCOUNT").strip()
+    key = _env("AZURE_COSMOSDB_ACCOUNT_KEY").strip()
+    database_name = _env("AZURE_COSMOSDB_BUYERS_DATABASE").strip()
+    container_name = _env("AZURE_COSMOSDB_NATIONWIDE_BUYERS_CONTAINER").strip()
+    endpoint = f"https://{account}.documents.azure.com:443/"
+
+    os.environ["SSL_CERT_FILE"] = certifi.where()
+
+    clamped_size = _parse_positive_int(sample_size, default=50, min_value=1, max_value=100)
+    state_value = _normalize_state(state)
+
+    try:
+        async with CosmosClient(endpoint, credential=key) as cosmos_client:
+            database = cosmos_client.get_database_client(database_name)
+            container = database.get_container_client(container_name)
+
+            try:
+                buyers, total_count, offset = await _query_buyers(
+                    container_client=container,
+                    city=city,
+                    state=state_value,
+                    sample_size=clamped_size,
+                    use_partition_key=True,
+                )
+                query_mode = "partition_key"
+            except Exception:
+                buyers, total_count, offset = await _query_buyers(
+                    container_client=container,
+                    city=city,
+                    state=state_value,
+                    sample_size=clamped_size,
+                    use_partition_key=False,
+                )
+                query_mode = "cross_partition"
+    except Exception as exc:
+        return {"ok": False, "error": f"Cosmos buyers query failed: {str(exc)}"}
+
+    return {
+        "ok": True,
+        "buyers": buyers,
+        "city": city,
+        "state": state_value,
+        "sample_size": clamped_size,
+        "total_count": total_count,
+        "offset": offset,
+        "query_mode": query_mode,
+    }
+
+
+async def _fetch_bricked_comps(address: str, max_comps: int = 12) -> dict[str, Any]:
+    if httpx is None:
+        return {"ok": False, "error": "httpx package is not installed in apps/mcp."}
+
+    api_key = _env("BRICKED_API_KEY").strip()
+    if not api_key:
+        return {"ok": False, "error": "BRICKED_API_KEY is not configured."}
+
+    max_items = _parse_positive_int(max_comps, default=12, min_value=1, max_value=50)
+    url = "https://api.bricked.ai/v1/property/create"
+    headers = {"x-api-key": api_key}
+    attempts: list[tuple[str, dict[str, Any]]] = [
+        ("GET", {"params": {"address": address}}),
+        ("GET", {"params": {"property_address": address}}),
+        ("POST", {"json": {"address": address}}),
+        ("POST", {"json": {"fullAddress": address}}),
+        ("POST", {"json": {"property_address": address}}),
+    ]
+
+    last_error = ""
+    last_status: Optional[int] = None
+    last_body = ""
+
+    async with httpx.AsyncClient(timeout=45.0) as client:
+        for method, kwargs in attempts:
+            try:
+                response = await client.request(method, url, headers=headers, **kwargs)
+            except Exception as exc:
+                last_error = str(exc)
+                continue
+
+            if 200 <= response.status_code < 300:
+                try:
+                    payload = response.json()
+                except Exception as exc:
+                    return {"ok": False, "error": f"Bricked returned invalid JSON: {str(exc)}"}
+
+                return {
+                    "ok": True,
+                    "address": address,
+                    "request_method": method,
+                    "trimmed": _trim_bricked_payload(payload, address, max_items),
+                }
+
+            last_status = response.status_code
+            last_body = response.text[:700]
+
+    error_details = f"Bricked request failed. status={last_status} body={last_body}".strip()
+    if last_error:
+        error_details = f"{error_details} last_error={last_error}".strip()
+    return {"ok": False, "error": error_details}
+
+
+def _generate_buyers_excel(
+    buyers: list[dict[str, Any]], city: str, state: str,
+) -> str | None:
+    """Build an Excel file from buyer rows and upload to Azure Blob.
+
+    Returns the download URL, or *None* if upload is unavailable.
+    """
+    try:
+        import pandas as pd
+        from services.azure_blob import AzureBlobService
+    except ImportError:
+        logger.warning("pandas or azure_blob not available — skipping Excel generation")
+        return None
+
+    blob = AzureBlobService.get_instance()
+    if not blob:
+        return None
+
+    rows = _build_buyer_preview_rows(buyers, limit=len(buyers))
+    if not rows:
+        return None
+
+    df = pd.DataFrame(rows)
+
+    slug_city = re.sub(r"[^a-z0-9]+", "-", city.lower()).strip("-")
+    slug_state = state.lower()
+    ts = int(datetime.utcnow().timestamp())
+    filename = f"{slug_city}-{slug_state}-cash-buyers-list_{ts}.xlsx"
+
+    try:
+        url = blob.upload_dataframe(
+            container_name="documents",
+            file_name=filename,
+            df=df,
+            sheet_name="Cash Buyers",
+        )
+        return url
+    except Exception:
+        logger.exception("Buyers Excel upload failed")
+        return None
+
+
+async def _buyers_payload_with_data(prompt: str, arguments: dict[str, Any]) -> dict[str, Any]:
+    payload = _buyers_payload(prompt)
+    city, state, source = _normalize_city_state(prompt, arguments)
+    payload["city"] = city
+    payload["state"] = state
+    payload["location_source"] = source
+
+    raw_max = arguments.get("max_results")
+    sample_size = _parse_positive_int(raw_max, default=50, min_value=50, max_value=100)
+    payload["max_results"] = sample_size
+
+    if not city or not state:
+        payload["status"] = "missing_location"
+        payload["data_source"] = "cosmos"
+        payload["buyers_preview"] = []
+        payload["message"] = (
+            "No city/state detected. Ask user to provide a location like 'Houston, TX' "
+            "or call buyers-search with explicit city/state arguments."
+        )
+        return payload
+
+    result = await _fetch_buyers_from_cosmos(city=city, state=state, sample_size=sample_size)
+    payload["data_source"] = "cosmos"
+
+    if not result.get("ok"):
+        payload["status"] = "error"
+        payload["buyers_preview"] = []
+        payload["message"] = result.get("error", "Cosmos buyers lookup failed.")
+        return payload
+
+    buyers = result.get("buyers", [])
+    preview = _build_buyer_preview_rows(buyers, limit=10)
+    payload["query_meta"] = {
+        "city": result.get("city"),
+        "state": result.get("state"),
+        "total_count": result.get("total_count"),
+        "offset": result.get("offset"),
+        "query_mode": result.get("query_mode"),
+    }
+    payload["buyers_preview"] = preview
+    payload["buyers_count"] = len(buyers)
+
+    if buyers:
+        payload["status"] = "ok"
+
+        # Generate Excel and upload to Azure Blob
+        excel_link = _generate_buyers_excel(buyers, city, state)
+        payload["excel_link"] = excel_link or ""
+
+        payload["message"] = (
+            f"Retrieved {len(buyers)} buyers for {result.get('city')}, {result.get('state')}."
+        )
+
+        # Inject download instructions into the system prompt so the model
+        # shows the real link prominently and never fabricates a URL.
+        if excel_link:
+            payload["route_system_prompt"] = (
+                payload.get("route_system_prompt", "") +
+                f"\n\nIMPORTANT — MANDATORY DOWNLOAD LINK: You MUST include this "
+                f"download link in your response. Display it prominently after "
+                f"the buyer preview list:\n"
+                f"📥 **[Download Full Buyers List ({len(buyers)} buyers)]({excel_link})**\n"
+                f"Do NOT omit this link. Do NOT generate any other download URL. "
+                f"The user expects to download the Excel file."
+            )
+        else:
+            payload["route_system_prompt"] = (
+                payload.get("route_system_prompt", "") +
+                "\n\nNOTE: Excel export is unavailable. Present all buyer data "
+                "inline. NEVER generate fake download links."
+            )
+    else:
+        payload["status"] = "no_results"
+        payload["message"] = (
+            f"No buyers found for {result.get('city')}, {result.get('state')}. "
+            "Try another nearby city or state."
+        )
+
+    return payload
+
+
+async def _comps_payload_with_data(prompt: str, arguments: dict[str, Any]) -> dict[str, Any]:
+    payload = _comps_payload(prompt)
+    explicit_address = str(arguments.get("address") or "").strip()
+    selected_address = explicit_address or _extract_full_address(prompt) or ""
+    max_comps = _parse_positive_int(arguments.get("max_comps"), default=12, min_value=1, max_value=50)
+
+    payload["subject_address"] = selected_address
+    payload["max_comps"] = max_comps
+    payload["data_source"] = "bricked"
+
+    if not selected_address:
+        payload["status"] = "missing_address"
+        payload["message"] = (
+            "No full address detected. Ask user for street, city, state, zip "
+            "or call bricked-comps with an explicit address argument."
+        )
+        payload["bricked"] = None
+        return payload
+
+    result = await _fetch_bricked_comps(selected_address, max_comps=max_comps)
+    if not result.get("ok"):
+        payload["status"] = "error"
+        payload["message"] = result.get("error", "Bricked lookup failed.")
+        payload["bricked"] = None
+        return payload
+
+    trimmed = result.get("trimmed") or {}
+    payload["status"] = "ok"
+    payload["message"] = f"Retrieved comps for {selected_address}."
+    payload["request_method"] = result.get("request_method")
+    payload["bricked"] = trimmed
+    payload["arv"] = trimmed.get("arv")
+    payload["cmv"] = trimmed.get("cmv")
+    payload["comps_count"] = len(trimmed.get("comps") or [])
+    return payload
+
+
+def _ok(tool_name: str, payload: dict[str, Any]) -> dict[str, Any]:
+    return {"tool": tool_name, "ok": True, "result": payload}
+
+
+async def _read_tool_request() -> ToolRequest:
+    data = await request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return ToolRequest()
+
+    try:
+        return ToolRequest(**data)
+    except Exception:
+        prompt = str(data.get("prompt", "")) if isinstance(data, dict) else ""
+        return ToolRequest(prompt=prompt)
+
+
+@app.get("/")
+async def root():
+    return {
+        "name": "ARI MCP Tool Server",
+        "version": "0.2.0",
+        "integration_config": INTEGRATION_CONFIG,
+        "endpoints": [
+            "GET /health",
+            "GET /tools",
+            "POST /tools/integration-config",
+            "POST /tools/classify",
+            "POST /tools/education",
+            "POST /tools/comps",
+            "POST /tools/leads",
+            "POST /tools/attorneys",
+            "POST /tools/strategy",
+            "POST /tools/contracts",
+            "POST /tools/buyers",
+            "POST /tools/offtopic",
+            "POST /tools/build-retrieval-query",
+            "POST /tools/infer-lead-type",
+            "POST /tools/extract-city-state",
+            "POST /tools/extract-address",
+            "POST /tools/buyers-search",
+            "POST /tools/bricked-comps",
+        ],
+    }, 200
+
+
+@app.get("/health")
+async def health():
+    return {
+        "status": "ok",
+        "service": "mcp",
+        "integration_config": INTEGRATION_CONFIG,
+        "timestamp": datetime.utcnow().isoformat() + "Z",
+    }, 200
+
+
+@app.get("/tools")
+async def tools():
+    return {
+        "tools": [
+            "integration-config",
+            "classify",
+            "education",
+            "comps",
+            "leads",
+            "attorneys",
+            "strategy",
+            "contracts",
+            "buyers",
+            "offtopic",
+            "build-retrieval-query",
+            "infer-lead-type",
+            "extract-city-state",
+            "extract-address",
+            "buyers-search",
+            "bricked-comps",
+        ]
+    }, 200
+
+
+@app.post("/tools/classify")
+async def tool_classify():
+    req = await _read_tool_request()
+    prompt = _latest_user_prompt(req)
+    return _ok("classify", _classify_prompt(prompt)), 200
+
+
+@app.post("/tools/integration-config")
+async def tool_integration_config():
+    return _ok("integration-config", INTEGRATION_CONFIG), 200
+
+
+@app.post("/tools/education")
+async def tool_education():
+    req = await _read_tool_request()
+    return _ok("education", _education_payload(_latest_user_prompt(req))), 200
+
+
+@app.post("/tools/comps")
+async def tool_comps():
+    req = await _read_tool_request()
+    prompt = _latest_user_prompt(req)
+    return _ok("comps", await _comps_payload_with_data(prompt, req.arguments)), 200
+
+
+@app.post("/tools/leads")
+async def tool_leads():
+    req = await _read_tool_request()
+    prompt = _latest_user_prompt(req)
+    payload = _leads_payload(prompt)
+
+    scrape_url = req.arguments.get("url") or payload.get("detected_url")
+
+    # If no URL provided, try to auto-generate from location + lead type
+    if not scrape_url:
+        city, state = _extract_city_state(prompt)
+        if city:
+            lead_type = _infer_lead_type_from_prompt(prompt)
+            scrape_url = _build_zillow_url(city, state, lead_type)
+            if scrape_url:
+                payload["lead_type"] = lead_type.replace("-", " ").title()
+                logger.info("Auto-generated Zillow URL for %s, %s (%s)", city, state, lead_type)
+                logger.info("Scrape URL: %s", scrape_url)
+
+    if scrape_url:
+        logger.info("Starting Zillow scrape: %s", scrape_url)
+        try:
+            from services.lead_gen import get_properties
+            filename = req.arguments.get("filename") or f"leads_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.xlsx"
+            max_pages = _parse_positive_int(req.arguments.get("max_pages"), default=5, min_value=1, max_value=10)
+            result = await get_properties(scrape_url, filename, max_pages=max_pages)
+            payload["status"] = result.get("status", "error")
+            payload["preview"] = result.get("preview")
+            payload["excel_link"] = result.get("excel_link")
+            payload["properties_count"] = result.get("properties_count", 0)
+            payload["data_source"] = result.get("source", "scrape")
+            payload["message"] = result.get("message", "")
+
+            # If we have an excel link, inject it into the system prompt
+            # so the model MUST include it in its response
+            excel_link = result.get("excel_link", "")
+            count = result.get("properties_count", 0)
+            if excel_link and count:
+                payload["route_system_prompt"] = (
+                    payload.get("route_system_prompt", "") +
+                    f"\n\nIMPORTANT — MANDATORY DOWNLOAD LINK: You MUST include this "
+                    f"download link in your response. Display it prominently after "
+                    f"the property list:\n"
+                    f"📥 **[Download Full List ({count} properties)]({excel_link})**\n"
+                    f"Do NOT omit this link. The user expects to download the Excel file."
+                    f"\n\nCRITICAL: NEVER show the Zillow search URL or any source URL "
+                    f"used to generate this list. "
+                    f"\n\nURL FORMATTING: NEVER display raw Zillow URLs as plain text. "
+                    f"Always format property links as markdown hyperlinks with friendly text, "
+                    f'e.g. [View Property](https://www.zillow.com/...) or '
+                    f'[Property Details](https://www.zillow.com/...). '
+                    f"The download link should also use markdown: "
+                    f"[Download Full List ({count} properties)]({excel_link})"
+                )
+
+            # Strip source URLs from payload so model never sees them
+            payload.pop("detected_url", None)
+            payload.pop("generated_url", None)
+            payload.pop("lead_link_prompt", None)
+        except Exception as exc:
+            logger.error("Leads scraping failed: %s", exc)
+            payload["status"] = "error"
+            payload["message"] = f"Lead scraping failed: {str(exc)}"
+    else:
+        payload["status"] = "awaiting_url"
+        payload["message"] = (
+            "No location or Zillow URL detected. Please provide a city/state "
+            "or a Zillow search URL to generate leads."
+        )
+
+    return _ok("leads", payload), 200
+
+
+@app.post("/tools/attorneys")
+async def tool_attorneys():
+    req = await _read_tool_request()
+    prompt = _latest_user_prompt(req)
+    payload = _attorneys_payload(prompt)
+
+    scrape_url = req.arguments.get("url")
+    if scrape_url:
+        try:
+            from services.lead_gen import get_attorneys
+            filename = req.arguments.get("filename") or f"attorneys_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.xlsx"
+            result = await get_attorneys(scrape_url, filename)
+            payload["status"] = result.get("status", "error")
+            payload["message"] = result.get("message", "")
+            payload["preview"] = result.get("preview")
+            payload["excel_link"] = result.get("excel_link")
+            payload["attorneys_count"] = result.get("attorneys_count", 0)
+            payload["data_source"] = result.get("source", "scrape")
+        except Exception as exc:
+            logger.error("Attorney scraping failed: %s", exc)
+            payload["status"] = "error"
+            payload["message"] = f"Attorney scraping failed: {str(exc)}"
+    else:
+        payload["status"] = "awaiting_url"
+        payload["message"] = (
+            "No attorney directory URL provided. Supply a URL argument to scrape "
+            "attorney listings."
+        )
+
+    return _ok("attorneys", payload), 200
+
+
+@app.post("/tools/strategy")
+async def tool_strategy():
+    req = await _read_tool_request()
+    return _ok("strategy", _strategy_payload(_latest_user_prompt(req))), 200
+
+
+@app.post("/tools/contracts")
+async def tool_contracts():
+    req = await _read_tool_request()
+    return _ok("contracts", _contracts_payload(_latest_user_prompt(req))), 200
+
+
+@app.post("/tools/buyers")
+async def tool_buyers():
+    req = await _read_tool_request()
+    prompt = _latest_user_prompt(req)
+    return _ok("buyers", await _buyers_payload_with_data(prompt, req.arguments)), 200
+
+
+@app.post("/tools/offtopic")
+async def tool_offtopic():
+    req = await _read_tool_request()
+    return _ok("offtopic", _offtopic_payload(_latest_user_prompt(req))), 200
+
+
+@app.post("/tools/build-retrieval-query")
+async def tool_build_retrieval_query():
+    req = await _read_tool_request()
+    prompt = _latest_user_prompt(req)
+    return _ok(
+        "build-retrieval-query",
+        {"retrieval_query": build_retrieval_query(prompt), "prompt": prompt},
+    ), 200
+
+
+@app.post("/tools/infer-lead-type")
+async def tool_infer_lead_type():
+    req = await _read_tool_request()
+    prompt = _latest_user_prompt(req)
+    incoming_url = req.arguments.get("url") if isinstance(req.arguments, dict) else None
+    url = incoming_url or extract_first_url(prompt)
+    return _ok(
+        "infer-lead-type",
+        {"url": url, "lead_type": infer_lead_type_from_url(url) if url else "Unknown"},
+    ), 200
+
+
+@app.post("/tools/extract-city-state")
+async def tool_extract_city_state():
+    req = await _read_tool_request()
+    prompt = _latest_user_prompt(req)
+    city, state, source = _normalize_city_state(prompt, req.arguments)
+    return _ok(
+        "extract-city-state",
+        {"city": city, "state": state, "location_source": source, "prompt": prompt},
+    ), 200
+
+
+@app.post("/tools/extract-address")
+async def tool_extract_address():
+    req = await _read_tool_request()
+    prompt = _latest_user_prompt(req)
+    explicit_address = str(req.arguments.get("address") or "").strip()
+    address = explicit_address or _extract_full_address(prompt)
+    return _ok(
+        "extract-address",
+        {
+            "address": address,
+            "address_source": "arguments" if explicit_address else "prompt",
+            "address_candidates": _extract_address_candidates(prompt),
+        },
+    ), 200
+
+
+@app.post("/tools/buyers-search")
+async def tool_buyers_search():
+    req = await _read_tool_request()
+    prompt = _latest_user_prompt(req)
+    payload = await _buyers_payload_with_data(prompt, req.arguments)
+    return _ok("buyers-search", payload), 200
+
+
+@app.post("/tools/bricked-comps")
+async def tool_bricked_comps():
+    req = await _read_tool_request()
+    prompt = _latest_user_prompt(req)
+    payload = await _comps_payload_with_data(prompt, req.arguments)
+    return _ok("bricked-comps", payload), 200
+
+
+@app.errorhandler(404)
+async def not_found(_):
+    return {"error": "Not found"}, 404
+
+
+@app.errorhandler(500)
+async def server_error(error):
+    return {"error": "Internal server error", "detail": str(error)}, 500
+
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=8100, debug=False)
