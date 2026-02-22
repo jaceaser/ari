@@ -1,0 +1,91 @@
+/* HomePage.module.css */
+.layout {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    background-color: black;
+}
+
+.header {
+    background-color: #000000;
+    width: 100%;
+    margin-top: 40px;
+}
+
+.chatbotTitlePlaceholder {
+    color: #FFFFFF;
+    font-family: "Poppins", Sans-serif;
+    font-size: 65px;
+    font-weight: 600;
+    margin-bottom: 20px;
+}
+
+.bannerPlaceholder {
+    width: 80%;
+    height: 600px; /* Adjust based on your needs */
+    width: 464px;
+    background-color: grey; /* This will be overridden by the background image */
+    background-image: url('../../assets/Charles-Hernandez-768x994.jpg'); /* Path to your image */
+    background-size: cover; /* Cover the entire area of the div */
+    background-position: center; /* Center the background image */
+    margin-bottom: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white; /* Text color, if you want to add text */
+    font-size: 24px; /* Adjust as needed */
+}
+
+.loginForm {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem; /* Adjust the space between form elements if needed */
+}
+
+label {
+    color: white; /* Makes label text white */
+    font-size: 1.2rem; /* Increases label text size for better visibility */
+    margin-top: 25px;
+    width: 400px;
+}
+  
+input {
+    padding: 1rem; /* Increases padding to make text fields larger */
+    font-size: 1.2rem; /* Increases font size within the text fields */
+    margin: 0.5rem 0; /* Adds some space around the text fields */
+    border-radius: 5px; /* Optional: Adds rounded corners to the text fields */
+    border: 1px solid #ccc; /* Optional: Defines a border for the text fields */
+    width: 400px;
+}
+
+input:read-only,
+textarea:read-only {
+  background-color: silver;
+}
+
+.updateProfileButton {
+    width: 240px;
+    height: 60px;
+    border: 1px solid #000000;
+    cursor: pointer;
+    background-color: #d9c984;
+    border-radius: 8px 8px 8px 8px;
+    padding: 20px 50px 20px 50px;
+    color: #FFFFFF;
+    font-family: 'Poppins, Sans-serif';
+    font-weight: 600;
+    font-size: 18px;
+    line-height: normal;
+    color: #FFFFFF;
+
+}
+.updateProfileButton:hover {
+    opacity: 0.8;
+    border: 1px solid #000000;
+    background-color: #d9c984;
+  }
+.updateProfileButton:focus {
+    opacity: 1.0;
+    border: 1px solid #000000;
+    background: #d9c984;
+  }

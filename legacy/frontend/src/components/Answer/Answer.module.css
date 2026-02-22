@@ -1,0 +1,148 @@
+/* Updated Answer.module.css for dark theme */
+@keyframes fadeIn {
+    from {
+        opacity: 0.7;
+        transform: translateY(1px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.answerContainer {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    padding: 8.1285px;
+    gap: 5.42px;
+    background: #2d2d2d; /* Dark background */
+    border-radius: 5.419px;
+    width: 100%;
+    margin-left: 10%;
+    margin-right: 10%;
+    transition: all 0.2s ease-in-out;
+}
+
+.answerText {
+    font-style: normal;
+    font-weight: 400;
+    font-size: 18px;
+    line-height: 20px;
+    color: #e0e0e0; /* Light text */
+    flex: none;
+    order: 1;
+    align-self: stretch;
+    flex-grow: 0;
+    margin: 0;
+    width: 100%;
+    white-space: normal;
+    word-wrap: break-word;
+    overflow-x: auto;
+    opacity: 1;
+    transition: opacity 0.2s ease-in-out;
+    animation: fadeIn 0.3s ease-in-out;
+}
+
+.typewriter-markdown {
+    font-style: normal;
+    font-weight: 400;
+    font-size: 18px;
+    line-height: 20px;
+    color: #e0e0e0; /* Light text */
+    word-wrap: break-word;
+    white-space: normal;
+    overflow-x: hidden;
+    animation: fadeIn 0.3s ease-in-out;
+}
+
+.streaming {
+    opacity: 0.85;
+}
+
+.assistantMessage {
+    transition: opacity 0.3s ease-in-out, transform 0.2s ease-in-out;
+}
+
+.answerDisclaimer {
+    font-style: normal;
+    font-weight: 400;
+    font-size: 12px;
+    line-height: 16px;
+    color: #b0b0b0; /* Lighter gray */
+}
+
+.citationContainer {
+    margin-left: 10px;
+    font-style: normal;
+    font-weight: 600;
+    font-size: 12px;
+    line-height: 16px;
+    color: #DACB84; /* Gold accent */
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    padding: 4px 6px;
+    gap: 4px;
+    border: 1px solid #4a4a4a; /* Darker border */
+    border-radius: 4px;
+    transition: all 0.2s ease;
+}
+
+.citationContainer:hover {
+    background: rgba(218, 203, 132, 0.1); /* Gold hover effect */
+    text-decoration: none;
+}
+
+.citation {
+    border: 1px solid #4a4a4a; /* Darker border */
+    color: #e0e0e0; /* Light text */
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.citation:hover {
+    background: rgba(218, 203, 132, 0.1); /* Gold hover */
+}
+
+.accordionIcon {
+    color: #b0b0b0; /* Lighter gray */
+}
+
+.accordionIcon:hover {
+    color: #DACB84; /* Gold accent */
+}
+
+.accordionTitle {
+    color: #b0b0b0; /* Lighter gray */
+}
+
+.accordionTitle:hover {
+    color: #DACB84; /* Gold accent */
+}
+
+.clickableSup {
+    border: 1px solid #4a4a4a; /* Darker border */
+    color: #e0e0e0; /* Light text */
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.clickableSup:hover {
+    background: rgba(218, 203, 132, 0.1); /* Gold hover */
+}
+
+sup {
+    color: #DACB84; /* Gold accent for sup numbers */
+}
+
+.topIcon {
+    width: 36px; /* Adjust size */
+    height: 36px;
+    margin-right: 8px; /* Space between icon and text */
+    object-fit: contain; /* Ensure image scales properly */
+}
+
+@media (max-width: 768px) {
+    .answerContainer {
+        background: #1a1a1a;; /* Pure black on mobile */
+    }
+}

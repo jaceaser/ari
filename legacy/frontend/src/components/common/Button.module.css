@@ -1,0 +1,204 @@
+.shareButtonRoot {
+    width: 86px;
+    height: 32px;
+    border-radius: 4px;
+    background: radial-gradient(109.81% 107.82% at 100.1% 90.19%, #0F6CBD 33.63%, #2D87C3 70.31%, #8DDDD8 100%);
+    padding: 5px 12px;
+    margin-right: 20px;
+  }
+  
+  .shareButtonRoot:hover {
+    background: linear-gradient(135deg, #0F6CBD 0%, #2D87C3 51.04%, #8DDDD8 100%);
+  }
+  
+  .shareButtonRoot span {
+    font-weight: 600;
+    font-size: 14px;
+    line-height: 20px;
+    color: #FFFFFF;
+  }
+
+  .shareButtonRoot i, .shareButtonRoot:hover i {
+    color: #FFFFFF !important;
+  }
+  
+  .historyButtonRoot {
+    width: 180px;
+    margin-right: 40px;
+    border: 1px solid #D1D1D1;
+  }
+
+  .historyButtonRoot:hover {
+    border: 1px solid #D1D1D1;
+  }
+
+  .historyButtonRoot:active {
+    border: 1px solid #D1D1D1;
+  }
+
+  .signupButtonRoot {
+    font-family: 'Poppins', sans-serif;
+    font-weight: 800;
+    font-size: 30px;
+    line-height: 20px;
+    color: #000000;
+    width: 400px;
+    height: 60px;
+    border: 1px solid #B58D5C;
+    cursor: pointer;
+    background-color: #B58D5C;
+    border-radius: 8px 8px 8px 8px;
+    padding: 20px 50px 20px 50px;
+  }
+  
+  .signupButtonRoot:hover {
+    opacity: 0.8;
+    border: 1px solid #B58D5C;
+    background-color: #B58D5C;
+  }
+
+  .signupButtonRoot:active {
+    opacity: 1;
+    border: 1px solid #B58D5C;
+    background-color: #B58D5C;
+  }
+
+  .signupButtonRoot label {
+    font-family: 'Poppins', sans-serif;
+    font-weight: 600;
+    font-size: 18px;
+    line-height: 20px;
+    color: #FFFFFF;
+  }
+
+  .loginButtonRoot {
+    font-family: 'Poppins', sans-serif;
+    font-weight: 800;
+    font-size: 24px;
+    line-height: 20px;
+    color: #000000;
+    width: 180px;
+    height: 60px;
+    border: 1px solid #B58D5C;
+    cursor: pointer;
+    background-color: #B58D5C;
+    border-radius: 8px 8px 8px 8px;
+    padding: 20px 50px 20px 50px;
+  }
+  
+  .loginButtonRoot:hover {
+    opacity: 0.8;
+    border: 1px solid #B58D5C;
+    background-color: #B58D5C;
+  }
+
+  .loginButtonRoot:active {
+    opacity: 1;
+    border: 1px solid #B58D5C;
+    background-color: #B58D5C;
+  }
+
+  .loginButtonRoot label {
+    font-family: 'Poppins', sans-serif;
+    font-weight: 600;
+    font-size: 18px;
+    line-height: 20px;
+    color: #000000;
+  }
+
+  .logoutButtonRoot {
+    font-family: 'Poppins', sans-serif;
+    font-weight: 800;
+    font-size: 24px;
+    margin-right: 40px;
+    width: 150px;
+    height: 60px;
+    border: 1px solid #B58D5C;
+    cursor: pointer;
+    background-color: #B58D5C;
+    border-radius: 8px 8px 8px 8px;
+    padding: 20px 50px 20px 50px;
+  }
+  
+  .logoutButtonRoot:hover {
+    opacity: 0.8;
+    border: 1px solid #B58D5C;
+    background-color: #B58D5C;
+  }
+
+  .logoutButtonRoot:active {
+    opacity: 1;
+    border: 1px solid #B58D5C;
+    background-color: #B58D5C;
+  }
+
+  .logoutButtonRoot label {
+    font-family: 'Poppins', sans-serif;
+    font-weight: 600;
+    font-size: 18px;
+    line-height: 20px;
+    color: #FFFFFF;
+  }
+
+  .updateProfileButtonRoot {
+    width: 240px;
+    height: 60px;
+    border: 1px solid #000000;
+    cursor: pointer;
+    background-color: #d9c984;
+    border-radius: 8px 8px 8px 8px;
+    padding: 20px 50px 20px 50px;
+    color: #FFFFFF;
+  }
+  
+  .updateProfileButtonRoot:hover {
+    opacity: 0.8;
+    border: 1px solid #000000;
+    background-color: #d9c984;
+  }
+
+  .updateProfileButtonRoot:active {
+    opacity: 1;
+    border: 1px solid #000000;
+    background-color: #d9c984;
+  }
+
+  .updateProfileButtonRoot label {
+    font-family: 'Poppins', sans-serif;
+    font-weight: 600;
+    font-size: 18px;
+    line-height: 20px;
+    color: #FFFFFF;
+  }
+
+  @media (max-width: 480px) {
+    .shareButtonRoot {
+      width: auto; 
+      padding: 5px 8px; 
+    }
+
+    .historyButtonRoot {
+      width: auto;
+      padding: 0 8px  
+    }
+
+    .signupButtonRoot {
+      width: auto;
+      padding: 0 8px  
+    }
+
+    .loginButtonRoot {
+      width: auto;
+      padding: 0 8px  
+    }
+
+    .logoutButtonRoot {
+      width: auto;
+      padding: 0 8px  
+    }
+
+    .updateProfileButtonRoot {
+      width: auto;
+      padding: 0 8px  
+    }
+  }
