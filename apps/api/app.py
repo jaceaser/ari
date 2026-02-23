@@ -1028,10 +1028,14 @@ async def _get_tools_for_user(user_id: str | None = None) -> list[dict[str, Any]
         cosmos = SessionsCosmosClient.get_instance()
         if cosmos:
             sub = await cosmos.get_user_subscription(user_id)
-            if sub and sub.get("subscription_status") in ("active", "trialing"):
+            if sub and (
+                sub.get("subscription_status") in ("active", "trialing")
+                or sub.get("tier") in ("elite", "pro", "admin")
+            ):
                 return MCP_TOOL_DEFINITIONS
-            logger.info("User %s → subscription_status=%s → guest tools",
-                        user_id, sub.get("subscription_status") if sub else "no record")
+            logger.info("User %s → subscription_status=%s tier=%s → guest tools",
+                        user_id, sub.get("subscription_status") if sub else "no record",
+                        sub.get("tier") if sub else "none")
         else:
             return MCP_TOOL_DEFINITIONS  # No Cosmos → don't restrict
     except Exception:

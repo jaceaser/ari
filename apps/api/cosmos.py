@@ -689,6 +689,7 @@ class SessionsCosmosClient:
                     "stripe_customer_id": item.get("stripe_customer_id"),
                     "plan": item.get("plan"),
                     "subscription_expires_at": item.get("subscription_expires_at"),
+                    "tier": item.get("tier"),
                 }
             return None
 
