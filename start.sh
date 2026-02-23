@@ -16,6 +16,30 @@ BLUE='\033[0;34m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
+start_mcp() {
+    echo -e "\n${BLUE}Starting MCP Tool Server (Quart)...${NC}"
+    echo "📁 Directory: $SCRIPT_DIR/apps/mcp"
+
+    cd "$SCRIPT_DIR/apps/mcp"
+
+    if [ ! -d "venv" ]; then
+        echo "📦 Creating virtual environment..."
+        python3 -m venv venv
+    fi
+
+    source venv/bin/activate
+
+    if ! python3 -c "import pandas" 2>/dev/null; then
+        echo "📥 Installing requirements..."
+        pip install -q -r requirements.txt
+    fi
+
+    echo -e "${GREEN}✅ MCP ready!${NC}"
+    echo "🌐 Starting server on http://localhost:8100"
+    echo ""
+    python3 app.py
+}
+
 start_backend() {
     echo -e "\n${BLUE}Starting Backend API (Quart)...${NC}"
     echo "📁 Directory: $SCRIPT_DIR/apps/api"
@@ -80,6 +104,9 @@ start_frontend() {
 }
 
 case "$MODE" in
+    mcp)
+        start_mcp
+        ;;
     backend)
         start_backend
         ;;
@@ -87,20 +114,22 @@ case "$MODE" in
         start_frontend
         ;;
     both)
-        echo -e "\n${YELLOW}⚠️  To run both, open two terminals and run:${NC}"
-        echo -e "   Terminal 1: ${BLUE}./start.sh backend${NC}"
-        echo -e "   Terminal 2: ${BLUE}./start.sh frontend${NC}"
+        echo -e "\n${YELLOW}⚠️  To run all services, open three terminals and run:${NC}"
+        echo -e "   Terminal 1: ${BLUE}./start.sh mcp${NC}"
+        echo -e "   Terminal 2: ${BLUE}./start.sh backend${NC}"
+        echo -e "   Terminal 3: ${BLUE}./start.sh frontend${NC}"
         echo ""
-        echo -e "${YELLOW}Starting backend in this terminal...${NC}"
-        start_backend
+        echo -e "${YELLOW}Starting MCP in this terminal...${NC}"
+        start_mcp
         ;;
     *)
-        echo "Usage: $0 [backend|frontend|both]"
+        echo "Usage: $0 [mcp|backend|frontend|both]"
         echo ""
         echo "Examples:"
+        echo "  $0 mcp        # Start just the MCP tool server"
         echo "  $0 backend    # Start just the backend API"
         echo "  $0 frontend   # Start just the frontend"
-        echo "  $0 both       # Show instructions for running both"
+        echo "  $0 both       # Show instructions for running all three"
         exit 1
         ;;
 esac
