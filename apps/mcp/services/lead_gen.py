@@ -99,7 +99,7 @@ async def fetch_page_content(url: str) -> Optional[bytes]:
                 "url": url,
                 "premium_proxy": "true",
                 "country_code": "us",
-                "render_js": "false",
+                "render_js": "true",
             },
             timeout=60,
         )

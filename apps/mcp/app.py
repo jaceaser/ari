@@ -286,6 +286,18 @@ def _extract_city_state(text: str) -> tuple[Optional[str], Optional[str]]:
         if first_word not in noise_words:
             return city_candidate, _normalize_state(match.group(2))
 
+    # No-comma fallback: "{location} {2-letter state}" e.g. "hidalgo county tx"
+    match = re.search(
+        r"\b([A-Za-z][A-Za-z .'-]{1,60}?)\s+([A-Z]{2})\b",
+        text, re.IGNORECASE,
+    )
+    if match:
+        city_candidate = match.group(1).strip()
+        noise_words = {"can", "get", "find", "show", "list", "give", "what", "the", "a", "me", "i", "in", "for", "near", "around"}
+        first_word = city_candidate.split()[0].lower()
+        if first_word not in noise_words:
+            return city_candidate, _normalize_state(match.group(2))
+
     return None, None
 
 
