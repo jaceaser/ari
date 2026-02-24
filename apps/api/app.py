@@ -1001,15 +1001,9 @@ GUEST_TOOL_NAMES: frozenset[str] = frozenset({
 
 
 async def _get_tools_for_user(user_id: str | None = None) -> list[dict[str, Any]]:
-    """Return MCP tool definitions filtered by user tier.
+    """Return MCP tool definitions for the user.
 
-    Guest / unsubscribed users get a limited set of tools.
-    API-key authenticated users (legacy /v1/*) get all tools.
-    Subscribed users get all tools.
-
-    ``user_id`` can be passed explicitly (required when called outside the
-    Quart request context, e.g. from an async generator).  When *None*,
-    falls back to reading from the request object for backwards compat.
+    All authenticated users get full tool access.
     """
     if user_id is None:
         try:
@@ -1017,29 +1011,8 @@ async def _get_tools_for_user(user_id: str | None = None) -> list[dict[str, Any]
         except RuntimeError:
             pass  # Outside request context — treat as no user_id
 
-    # API key auth (legacy path) → full access
-    if not user_id:
-        return MCP_TOOL_DEFINITIONS
-
-    # Check subscription status
-    try:
-        from cosmos import SessionsCosmosClient
-
-        cosmos = SessionsCosmosClient.get_instance()
-        if cosmos:
-            sub = await cosmos.get_user_subscription(user_id)
-            if sub and (
-                sub.get("subscription_status") in ("active", "trialing")
-                or sub.get("tier") in ("elite", "pro", "admin")
-            ):
-                return MCP_TOOL_DEFINITIONS
-            logger.info("User %s → subscription_status=%s tier=%s → guest tools",
-                        user_id, sub.get("subscription_status") if sub else "no record",
-                        sub.get("tier") if sub else "none")
-        else:
-            return MCP_TOOL_DEFINITIONS  # No Cosmos → don't restrict
-    except Exception:
-        return MCP_TOOL_DEFINITIONS  # Fail open
+    # All users (authenticated or API key) get full access
+    return MCP_TOOL_DEFINITIONS
 
     # Guest / unsubscribed → limited tools
     return [
