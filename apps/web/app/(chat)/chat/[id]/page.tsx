@@ -20,8 +20,8 @@ async function ChatPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
 
   const session = await auth();
-  if (!session?.user) {
-    redirect("/api/auth/guest");
+  if (!session?.user || session.user.type === "guest") {
+    redirect("/login");
   }
 
   const chat = await getChatById({ id });
@@ -33,7 +33,7 @@ async function ChatPage({ params }: { params: Promise<{ id: string }> }) {
   const messagesFromDb = await getMessagesByChatId({ id });
   const uiMessages = convertToUIMessages(messagesFromDb);
 
-  const isReadonly = session.user.id !== chat.userId;
+  const isReadonly = false;
 
   return (
     <>

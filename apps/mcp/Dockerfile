@@ -12,6 +12,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application code
 COPY app.py schemas.py legacy_tools.py ./
 COPY services/ services/
+COPY middleware/ middleware/
 COPY startup.sh .
 
 EXPOSE 8100

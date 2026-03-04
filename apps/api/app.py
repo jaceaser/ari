@@ -134,6 +134,10 @@ AZURE_OPENAI_DEPLOYMENT = os.getenv("AZURE_OPENAI_DEPLOYMENT") or os.getenv(
     "AZURE_OPENAI_MODEL", "gpt-5.2-chat"
 )
 AZURE_OPENAI_API_VERSION = os.getenv("AZURE_OPENAI_API_VERSION", "2024-12-01-preview")
+AZURE_OPENAI_TIMEOUT_SECONDS = float(os.getenv("AZURE_OPENAI_TIMEOUT_SECONDS", "120"))
+
+# Security
+FORCE_HTTPS = os.getenv("FORCE_HTTPS", "False").lower() == "true"
 
 GLOBAL_SYSTEM_PROMPT = os.getenv("ARI_SYSTEM_PROMPT") or os.getenv(
     "AZURE_OPENAI_SYSTEM_MESSAGE", ""
@@ -145,6 +149,14 @@ MCP_BASE_URL = os.getenv("MCP_BASE_URL", "http://localhost:8100").rstrip("/")
 MCP_TIMEOUT_SECONDS = float(os.getenv("MCP_TIMEOUT_SECONDS", "60"))
 MCP_TOOL_MAX_ROUNDS = int(os.getenv("MCP_TOOL_MAX_ROUNDS", "4"))
 MCP_TOOL_MAX_CALLS_PER_ROUND = int(os.getenv("MCP_TOOL_MAX_CALLS_PER_ROUND", "4"))
+
+# Context window management
+# GPT-5.2: 400K input context, 128K max output.
+# Budget = 400K - 128K output headroom = 272K usable input.  We use 260K to
+# leave an additional buffer for system prompts injected at call time.
+_CONTEXT_TOKEN_BUDGET = int(os.getenv("CONTEXT_TOKEN_BUDGET", "260000"))
+# Tool results (Zillow previews, buyer lists) are capped in-place before dropping messages.
+_MAX_TOOL_RESULT_CHARS = int(os.getenv("MAX_TOOL_RESULT_CHARS", "12000"))  # ≈ 3K tokens
 
 _azure_client: AsyncAzureOpenAI | None = None
 
@@ -411,6 +423,30 @@ MCP_TOOL_DEFINITIONS: list[dict[str, Any]] = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "mcp_stack_lists",
+            "description": (
+                "Combine multiple uploaded property lists (Excel/CSV files) and return only the "
+                "properties that appear on 2 or more lists. Use this when the user has attached "
+                "multiple spreadsheets (e.g. lis pendens + code violations + tax delinquent) and "
+                "wants to find the overlap — properties with multiple distress signals are the most "
+                "motivated sellers. The files must already be attached/uploaded in the current chat "
+                "message. Returns a download link for the consolidated Excel workbook."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "prompt": {
+                        "type": "string",
+                        "description": "Brief description of what the user wants (e.g. 'combine lis pendens and code violations lists').",
+                    },
+                },
+                "required": [],
+            },
+        },
+    },
 ]
 
 # ============================================================================
@@ -442,6 +478,8 @@ def _add_security_headers(response: Response) -> Response:
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
     return response
 
 
@@ -459,12 +497,32 @@ async def before_request():
         response = Response()
         return _add_cors_headers(response)
 
-    # Dual auth routing: JWT for Phase 2 endpoints, API key for /v1/*
+    # Enforce HTTPS in production via X-Forwarded-Proto (Azure App Service / reverse proxy)
+    if FORCE_HTTPS:
+        proto = request.headers.get("X-Forwarded-Proto", "https")
+        if proto.lower() != "https":
+            https_url = request.url.replace("http://", "https://", 1)
+            from quart import redirect
+            return redirect(https_url, code=301)
+
     path = request.path
     if any(path.startswith(prefix) for prefix in _JWT_AUTH_PREFIXES):
+        # Phase 2 endpoints — JWT required
         jwt_response = await jwt_auth_middleware()
         if jwt_response is not None:
             return jwt_response
+    elif path.startswith("/v1/"):
+        # Chat endpoint — try JWT (web users) first, fall back to API key
+        # (server-to-server / internal clients).  No anonymous access.
+        jwt_response = await jwt_auth_middleware()
+        if jwt_response is not None:
+            # JWT failed or absent — try API key
+            api_key_response = await auth_middleware()
+            if api_key_response is not None:
+                # Both failed — return JWT's 401 (more descriptive)
+                return jwt_response
+            # API key valid — flag so tier lookup can skip Cosmos
+            request.api_key_auth = True  # type: ignore[attr-defined]
     else:
         auth_response = await auth_middleware()
         if auth_response is not None:
@@ -520,7 +578,7 @@ class ChatCompletionRequest(BaseModel):
     messages: List[ChatMessage]
     stream: bool = Field(default=False)
     temperature: float = Field(default=0.7, ge=0.0, le=2.0)
-    max_tokens: int = Field(default=16384, ge=1)
+    max_tokens: int = Field(default=65536, ge=1)  # GPT-5.2 supports 128K output
 
 
 # ============================================================================
@@ -552,6 +610,7 @@ def get_azure_client() -> AsyncAzureOpenAI:
             api_key=AZURE_OPENAI_KEY,
             api_version=AZURE_OPENAI_API_VERSION,
             azure_endpoint=AZURE_OPENAI_ENDPOINT,
+            timeout=AZURE_OPENAI_TIMEOUT_SECONDS,
         )
 
     return _azure_client
@@ -643,6 +702,184 @@ def _messages_for_tool_payload(messages: list[dict[str, Any]]) -> list[dict[str,
         )
 
     return slim
+
+
+# ============================================================================
+# Context Token Management
+# ============================================================================
+
+
+def _count_message_tokens(messages: list[dict[str, Any]]) -> int:
+    """
+    Estimate token count for a list of messages.
+
+    Uses tiktoken with the gpt-4o encoding (o200k_base) for accuracy, falling
+    back to cl100k_base, then to a rough char/4 heuristic if tiktoken is not
+    installed.  The per-message overhead (+4 tokens) follows the OpenAI
+    cookbook formula for chat completions.
+    """
+    try:
+        import tiktoken
+
+        # Use o200k_base directly — the encoding used by GPT-4o and the GPT-5
+        # family.  Avoids model-name lookups that fail for Azure deployment
+        # names like "gpt-5.2-chat" which aren't in tiktoken's registry.
+        try:
+            enc = tiktoken.get_encoding("o200k_base")
+        except Exception:
+            enc = tiktoken.get_encoding("cl100k_base")
+
+        total = 3  # reply-priming overhead
+        for msg in messages:
+            total += 4  # per-message framing
+            total += len(enc.encode(msg.get("role") or ""))
+            content = msg.get("content")
+            if isinstance(content, str):
+                total += len(enc.encode(content))
+            elif isinstance(content, list):
+                for part in content:
+                    if isinstance(part, dict) and part.get("type") == "text":
+                        total += len(enc.encode(str(part.get("text") or "")))
+            for tc in msg.get("tool_calls") or []:
+                fn = tc.get("function") or {}
+                total += len(enc.encode(fn.get("name") or ""))
+                total += len(enc.encode(fn.get("arguments") or ""))
+        return total
+
+    except ImportError:
+        # Fallback: ~4 chars per token
+        total = 3
+        for msg in messages:
+            total += 4
+            content = msg.get("content") or ""
+            if isinstance(content, str):
+                total += len(content) // 4
+            elif isinstance(content, list):
+                for part in content:
+                    if isinstance(part, dict):
+                        total += len(str(part.get("text") or "")) // 4
+            for tc in msg.get("tool_calls") or []:
+                fn = tc.get("function") or {}
+                total += len(fn.get("arguments") or "") // 4
+        return total
+
+
+def _cap_tool_result_content(msg: dict[str, Any]) -> dict[str, Any]:
+    """
+    Return a (possibly new) tool-role message with content capped at
+    _MAX_TOOL_RESULT_CHARS.  Prefers trimming verbose fields inside the JSON
+    payload (preview, data, results) over blind string truncation so the
+    structure stays valid.
+    """
+    content = msg.get("content")
+    if not isinstance(content, str) or len(content) <= _MAX_TOOL_RESULT_CHARS:
+        return msg
+
+    try:
+        parsed = json.loads(content)
+        if isinstance(parsed, dict):
+            half = _MAX_TOOL_RESULT_CHARS // 2
+            for key in ("preview", "data", "results", "body", "raw"):
+                val = parsed.get(key)
+                if isinstance(val, str) and len(val) > half:
+                    parsed[key] = val[:half] + "... [truncated]"
+                elif isinstance(val, list) and len(val) > 20:
+                    parsed[key] = val[:20]
+                    parsed["_truncated"] = True
+        capped = json.dumps(parsed, ensure_ascii=False)
+    except Exception:
+        capped = content[:_MAX_TOOL_RESULT_CHARS] + "... [truncated]"
+
+    return {**msg, "content": capped}
+
+
+def _truncate_to_token_budget(
+    messages: list[dict[str, Any]],
+    budget: int = _CONTEXT_TOKEN_BUDGET,
+) -> list[dict[str, Any]]:
+    """
+    Reduce the message list to fit within ``budget`` tokens while preserving
+    conversational coherence.
+
+    Truncation order (least-lossy first):
+
+    1. Cap individual tool-result content in-place (preserves all messages).
+    2. Drop the oldest assistant-tool-call group (the assistant message that
+       requested tool calls plus all the tool-response messages that follow it)
+       from the front of the list.  Tool-call pairs are always removed as a
+       unit to keep the conversation structurally valid.
+    3. Drop the oldest non-system message from the front (user/assistant
+       exchanges from early in the conversation).
+
+    Invariants:
+    - System messages are never dropped.
+    - The last user message is never dropped.
+    """
+    # Step 1: cap individual tool results — often enough on its own
+    capped = [
+        _cap_tool_result_content(m) if m.get("role") == "tool" else m
+        for m in messages
+    ]
+
+    if _count_message_tokens(capped) <= budget:
+        return capped
+
+    system_msgs = [m for m in capped if m.get("role") == "system"]
+    other_msgs = [m for m in capped if m.get("role") != "system"]
+
+    # Index of the last user message — must always be kept
+    last_user_idx = next(
+        (i for i in reversed(range(len(other_msgs))) if other_msgs[i].get("role") == "user"),
+        None,
+    )
+
+    def _over_budget() -> bool:
+        return _count_message_tokens(system_msgs + other_msgs) > budget
+
+    # Step 2: drop oldest tool-call group (assistant + all its tool responses)
+    while _over_budget() and len(other_msgs) > 1:
+        removed = False
+        for i, msg in enumerate(other_msgs):
+            if msg.get("role") == "assistant" and msg.get("tool_calls"):
+                # Collect all consecutive tool responses that follow
+                j = i + 1
+                while j < len(other_msgs) and other_msgs[j].get("role") == "tool":
+                    j += 1
+                dropped = j - i
+                other_msgs = other_msgs[:i] + other_msgs[j:]
+                if last_user_idx is not None and last_user_idx > i:
+                    last_user_idx -= dropped
+                removed = True
+                break
+        if not removed:
+            break  # no more tool-call groups to remove
+
+    # Step 3: drop oldest non-system message (but never the last user message)
+    while _over_budget() and len(other_msgs) > 1:
+        if last_user_idx == 0:
+            break  # nothing droppable remains
+        other_msgs.pop(0)
+        if last_user_idx is not None:
+            last_user_idx -= 1
+
+    result = system_msgs + other_msgs
+    final_tokens = _count_message_tokens(result)
+    if final_tokens > budget:
+        logger.warning(
+            "[context] After truncation: %d tokens still exceeds budget %d "
+            "(last user message alone may be very large)",
+            final_tokens,
+            budget,
+        )
+    else:
+        logger.info(
+            "[context] Truncated context: %d messages → %d tokens (budget %d)",
+            len(messages),
+            final_tokens,
+            budget,
+        )
+
+    return result
 
 
 def _extract_prompt_candidates_from_tool_payload(payload: Any) -> list[str]:
@@ -901,6 +1138,134 @@ async def _handle_generate_document(arguments: dict[str, Any]) -> dict[str, Any]
     }
 
 
+def _extract_file_attachments(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """
+    Extract base64-encoded file attachments from message content arrays.
+
+    The web frontend sends files as FileUIPart objects:
+        {"type": "file", "url": "data:<mime>;base64,<data>", "filename": "...", "mediaType": "..."}
+
+    Returns a list of {"filename": str, "data": bytes, "media_type": str}.
+    """
+    import base64
+
+    attachments: list[dict[str, Any]] = []
+    for msg in messages:
+        content = msg.get("content")
+        if not isinstance(content, list):
+            continue
+        for part in content:
+            if not isinstance(part, dict) or part.get("type") != "file":
+                continue
+            url = part.get("url", "")
+            filename = (part.get("filename") or part.get("name") or "upload").strip()
+            media_type = (part.get("mediaType") or part.get("mimeType") or "").strip()
+
+            if not url.startswith("data:"):
+                continue
+
+            try:
+                header, encoded = url.split(",", 1)
+                if ";base64" not in header:
+                    continue
+                data = base64.b64decode(encoded)
+                attachments.append({"filename": filename, "data": data, "media_type": media_type})
+            except Exception:
+                logger.warning("Failed to decode file attachment '%s'", filename)
+
+    return attachments
+
+
+async def _handle_stack_lists(
+    arguments: dict[str, Any],
+    messages: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Local tool: process uploaded property lists, find overlap, return Excel download URL."""
+    import time as _time
+
+    from services.azure_blob import AzureBlobService
+    from services.stack_lists import process_stack_lists
+
+    _SPREADSHEET_EXTS = {".xlsx", ".xls", ".csv"}
+
+    all_files = _extract_file_attachments(messages)
+    spreadsheet_files = [
+        f for f in all_files
+        if any(f["filename"].lower().endswith(ext) for ext in _SPREADSHEET_EXTS)
+    ]
+
+    if len(spreadsheet_files) < 2:
+        found = len(spreadsheet_files)
+        total = len(all_files)
+        return {
+            "ok": False,
+            "tool": "mcp_stack_lists",
+            "error": (
+                f"Stack lists requires at least 2 Excel/CSV files. "
+                f"Found {found} spreadsheet(s) out of {total} total attachment(s). "
+                "Please upload your property list files directly in the chat message."
+            ),
+        }
+
+    try:
+        result_buf, summary = process_stack_lists(spreadsheet_files)
+    except ValueError as exc:
+        return {"ok": False, "tool": "mcp_stack_lists", "error": str(exc)}
+    except Exception:
+        logger.exception("Stack lists processing failed")
+        return {"ok": False, "tool": "mcp_stack_lists", "error": "Failed to process the uploaded files"}
+
+    blob = AzureBlobService.get_instance()
+    if not blob:
+        return {
+            "ok": False,
+            "tool": "mcp_stack_lists",
+            "error": "Document export not configured (Azure Blob Storage unavailable)",
+        }
+
+    filename = f"stacked_properties_{int(_time.time())}.xlsx"
+    try:
+        url = blob.upload_bytes(
+            container_name="documents",
+            file_name=filename,
+            data=result_buf.getvalue(),
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            expiry_minutes=30,
+        )
+    except Exception:
+        logger.exception("Blob upload failed for stack lists")
+        return {"ok": False, "tool": "mcp_stack_lists", "error": "Failed to upload the results file"}
+
+    overlap = summary["overlap_count"]
+    lists = summary["lists_processed"]
+    list_names = ", ".join(l["filename"] for l in lists)
+
+    if overlap == 0:
+        message = (
+            f"No overlapping properties found across the {len(lists)} uploaded lists ({list_names}). "
+            f"A summary file is available: {url}"
+        )
+    else:
+        message = (
+            f"Found {overlap} {'property' if overlap == 1 else 'properties'} appearing on "
+            f"multiple lists out of {len(lists)} files ({list_names}). "
+            f"Download the consolidated Excel file: {url}"
+        )
+
+    return {
+        "ok": True,
+        "tool": "mcp_stack_lists",
+        "data": {
+            "url": url,
+            "filename": filename,
+            "overlap_count": overlap,
+            "total_rows": summary["total_rows"],
+            "lists_processed": lists,
+            "message": message,
+        },
+    }
+
+
 # Fake document URLs the model hallucinates instead of using the generate_document tool.
 _FAKE_DOC_URL_RE = re.compile(
     r'\[([^\]]*)\]\(((?:sandbox:|https?://files\.openaiusercontent\.com|https?://(?:cdn\.)?openai\.com|https?://(?:www\.)?reilabs\.ai/)[^\)]*)\)',
@@ -991,34 +1356,140 @@ async def _auto_generate_docx_if_needed(response_text: str) -> str | None:
     return None
 
 
-# Tools available to unauthenticated / guest / unsubscribed users
-GUEST_TOOL_NAMES: frozenset[str] = frozenset({
+# ---------------------------------------------------------------------------
+# Tier-based tool access
+# ---------------------------------------------------------------------------
+
+_ALL_TOOL_NAMES: frozenset[str] = frozenset(
+    t["function"]["name"] for t in MCP_TOOL_DEFINITIONS
+)
+
+# elite / admin  — unrestricted access to every tool
+# pro            — all data tools (leads, buyers, comps, attorneys, documents)
+# basic          — education, strategy, comps, contracts, documents only
+#                  (no lead scraping, no buyers DB, no attorneys)
+# (no tier)      — new / unverified accounts: classification + education only
+_TIER_TOOLS: dict[str, frozenset[str]] = {
+    "admin": _ALL_TOOL_NAMES,
+    "elite": _ALL_TOOL_NAMES,
+    "pro": frozenset({
+        "mcp_integration_config",
+        "mcp_classify_route",
+        "mcp_education_context",
+        "mcp_comps_context",
+        "mcp_bricked_comps",
+        "mcp_leads_context",
+        "mcp_attorneys_context",
+        "mcp_strategy_context",
+        "mcp_contracts_context",
+        "mcp_buyers_context",
+        "mcp_buyers_search",
+        "mcp_extract_city_state",
+        "mcp_extract_address",
+        "mcp_offtopic_context",
+        "mcp_build_retrieval_query",
+        "mcp_infer_lead_type",
+        "generate_document",
+        "mcp_stack_lists",
+    }),
+    "basic": frozenset({
+        "mcp_integration_config",
+        "mcp_classify_route",
+        "mcp_education_context",
+        "mcp_comps_context",
+        "mcp_strategy_context",
+        "mcp_contracts_context",
+        "mcp_extract_address",
+        "mcp_offtopic_context",
+        "mcp_build_retrieval_query",
+        "generate_document",
+    }),
+}
+
+# Authenticated users with no tier (signed up but not subscribed yet)
+_NO_TIER_TOOLS: frozenset[str] = frozenset({
+    "mcp_integration_config",
     "mcp_classify_route",
     "mcp_education_context",
     "mcp_offtopic_context",
-    "mcp_integration_config",
 })
+
+# Simple TTL cache: user_id → (tier_str, fetched_at_monotonic)
+_tier_cache: dict[str, tuple[str, float]] = {}
+_TIER_CACHE_TTL: float = float(os.getenv("TIER_CACHE_TTL_SECONDS", "300"))
+
+
+async def _get_user_tier(user_id: str) -> str:
+    """
+    Return the user's tier string from Cosmos DB (cached for _TIER_CACHE_TTL seconds).
+
+    Returns "elite" when Cosmos is not configured (dev / local mode).
+    Returns "" (empty string) when the user has no tier assigned.
+    """
+    now = time.monotonic()
+    cached = _tier_cache.get(user_id)
+    if cached is not None and (now - cached[1]) < _TIER_CACHE_TTL:
+        return cached[0]
+
+    from cosmos import SessionsCosmosClient
+
+    cosmos = SessionsCosmosClient.get_instance()
+    if cosmos is None:
+        # Dev mode: no Cosmos configured — grant full access
+        return "elite"
+
+    try:
+        sub = await cosmos.get_user_subscription(user_id)
+        tier = ((sub or {}).get("tier") or "").strip().lower()
+        # Normalize ari_* prefixed values (from metadata or legacy plan field)
+        _plan_map = {"ari_elite": "elite", "ari_pro": "pro", "ari_lite": "basic"}
+        tier = _plan_map.get(tier, tier)
+        # Fall back to deriving tier from plan for migrated users that have plan but no tier
+        if not tier:
+            plan = ((sub or {}).get("plan") or "").strip().lower()
+            tier = _plan_map.get(plan, "")
+    except Exception:
+        logger.warning("[tier] Cosmos lookup failed for user %s; defaulting to no-tier", user_id)
+        tier = ""
+
+    _tier_cache[user_id] = (tier, now)
+    logger.info("[tier] user=%s tier=%r", user_id, tier or "(none)")
+    return tier
 
 
 async def _get_tools_for_user(user_id: str | None = None) -> list[dict[str, Any]]:
-    """Return MCP tool definitions for the user.
+    """
+    Return the MCP tool definitions the caller is permitted to use.
 
-    All authenticated users get full tool access.
+    Priority:
+    1. API-key-authenticated requests (server-to-server) → full admin access
+    2. JWT user with a recognised tier → _TIER_TOOLS[tier]
+    3. JWT user with no tier assigned  → _NO_TIER_TOOLS (classification/education only)
+    4. No identity (should be blocked by auth, but defensive fallback) → _NO_TIER_TOOLS
     """
     if user_id is None:
         try:
             user_id = getattr(request, "user_id", None)
         except RuntimeError:
-            pass  # Outside request context — treat as no user_id
+            pass
 
-    # All users (authenticated or API key) get full access
-    return MCP_TOOL_DEFINITIONS
+    # API-key calls (internal/server-to-server) get unrestricted access
+    try:
+        if getattr(request, "api_key_auth", False):
+            return MCP_TOOL_DEFINITIONS
+    except RuntimeError:
+        pass
 
-    # Guest / unsubscribed → limited tools
-    return [
-        tool for tool in MCP_TOOL_DEFINITIONS
-        if tool.get("function", {}).get("name") in GUEST_TOOL_NAMES
-    ]
+    # No identity — should have been blocked by auth middleware, but be defensive
+    if not user_id:
+        logger.warning("[tier] No user_id in tool lookup; returning minimal tools")
+        return [t for t in MCP_TOOL_DEFINITIONS if t["function"]["name"] in _NO_TIER_TOOLS]
+
+    tier = await _get_user_tier(user_id)
+    allowed = _TIER_TOOLS.get(tier, _NO_TIER_TOOLS)
+    tools = [t for t in MCP_TOOL_DEFINITIONS if t["function"]["name"] in allowed]
+    logger.info("[tier] user=%s tier=%r → %d/%d tools", user_id, tier or "(none)", len(tools), len(MCP_TOOL_DEFINITIONS))
+    return tools
 
 
 async def _run_mcp_tool_orchestration(
@@ -1051,8 +1522,11 @@ async def _run_mcp_tool_orchestration(
                 user_id, len(allowed_tools), tool_names)
 
     for round_idx in range(MCP_TOOL_MAX_ROUNDS):
+        # Truncate before each planning call — working_messages grows each round
+        # as tool results are appended and can overflow the context window.
+        budget_messages = _truncate_to_token_budget(working_messages)
         planning = await client.chat.completions.create(
-            **_tool_completion_args(working_messages, tools=allowed_tools)
+            **_tool_completion_args(budget_messages, tools=allowed_tools)
         )
 
         if not planning.choices:
@@ -1097,6 +1571,9 @@ async def _run_mcp_tool_orchestration(
             # Local tool handlers (no MCP proxy needed)
             if tool_name == "generate_document":
                 tool_result = await _handle_generate_document(tool_args)
+            elif tool_name == "mcp_stack_lists":
+                # Pass original messages so file attachments are accessible
+                tool_result = await _handle_stack_lists(tool_args, messages)
             else:
                 tool_result = await _call_mcp_tool_endpoint(
                     tool_name=tool_name,
@@ -1152,6 +1629,7 @@ async def generate_azure_response(
             completion_messages = normalized_messages
 
         completion_messages = _inject_server_system_prompts(completion_messages)
+        completion_messages = _truncate_to_token_budget(completion_messages)
 
         # Stream with up to 2 rounds of tool calls (generate_document)
         for _round in range(2):
@@ -1308,8 +1786,19 @@ async def chat_completions():
         }, 400
 
     for i, msg in enumerate(request_body.messages):
-        content = msg.content if isinstance(msg.content, str) else json.dumps(msg.content)
-        if len(content) > MAX_MESSAGE_LENGTH:
+        # For array content (vision/file format) only measure text parts,
+        # not base64 file data which can be legitimately large.
+        if isinstance(msg.content, str):
+            content_len = len(msg.content)
+        elif isinstance(msg.content, list):
+            content_len = sum(
+                len(p.get("text", ""))
+                for p in msg.content
+                if isinstance(p, dict) and p.get("type") == "text"
+            )
+        else:
+            content_len = 0
+        if content_len > MAX_MESSAGE_LENGTH:
             return {
                 "error": "Message too long",
                 "detail": f"Message at index {i} exceeds maximum length of {MAX_MESSAGE_LENGTH} characters",
@@ -1321,7 +1810,16 @@ async def chat_completions():
     last_user_content = ""
     for msg in reversed(request_body.messages):
         if msg.role == "user":
-            last_user_content = msg.content if isinstance(msg.content, str) else json.dumps(msg.content)
+            if isinstance(msg.content, str):
+                last_user_content = msg.content
+            elif isinstance(msg.content, list):
+                # Extract text parts only — skip base64 file attachments
+                texts = [
+                    p.get("text", "")
+                    for p in msg.content
+                    if isinstance(p, dict) and p.get("type") == "text"
+                ]
+                last_user_content = " ".join(texts)
             break
 
     if last_user_content:
@@ -1398,8 +1896,9 @@ async def not_found(_):
 
 
 @app.errorhandler(500)
-async def server_error(_):
+async def server_error(err):
     """500 handler."""
+    logger.exception("Unhandled 500 error: %s", err)
     return {"error": "Internal server error"}, 500
 
 

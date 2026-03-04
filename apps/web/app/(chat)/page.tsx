@@ -1,5 +1,7 @@
 import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
 import { Suspense } from "react";
+import { auth } from "@/app/(auth)/auth";
 import { Chat } from "@/components/chat";
 import { DataStreamHandler } from "@/components/data-stream-handler";
 import { proxyToBackend } from "@/lib/api-proxy";
@@ -14,6 +16,11 @@ export default function Page() {
 }
 
 async function NewChatPage() {
+  const session = await auth();
+  if (!session?.user || session.user.type === "guest") {
+    redirect("/login");
+  }
+
   await cookies(); // access dynamic data before Math.random()
   const id = generateUUID();
 

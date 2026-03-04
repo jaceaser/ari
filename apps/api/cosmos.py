@@ -623,6 +623,18 @@ class SessionsCosmosClient:
             await container.upsert_item(doc)
         return doc
 
+    async def get_magic_token_raw(self, token: str) -> Optional[dict[str, Any]]:
+        """Return the raw magic token doc regardless of expiry — for audit logging only."""
+        async with self._client() as client:
+            container = await self._container(client)
+            try:
+                item = await container.read_item(item=token, partition_key="system")
+                if item.get("type") != "magic_token":
+                    return None
+                return item
+            except Exception:
+                return None
+
     async def verify_magic_token(self, token: str) -> Optional[dict[str, Any]]:
         """Look up a magic token. Returns the doc if found and not expired."""
         async with self._client() as client:
@@ -670,6 +682,7 @@ class SessionsCosmosClient:
             if items:
                 doc = items[0]
                 doc.update(stripe_data)
+                doc["updated_at"] = datetime.now(timezone.utc).isoformat()
                 await container.upsert_item(doc)
             else:
                 logger.warning("No user doc found for %s to update subscription", user_id)
@@ -690,6 +703,7 @@ class SessionsCosmosClient:
                     "plan": item.get("plan"),
                     "subscription_expires_at": item.get("subscription_expires_at"),
                     "tier": item.get("tier"),
+                    "updated_at": item.get("updated_at"),
                 }
             return None
 
@@ -714,7 +728,7 @@ class SessionsCosmosClient:
             query = "SELECT * FROM c WHERE c.type = 'user' AND c.email = @email"
             params = [{"name": "@email", "value": email}]
             async for item in container.query_items(
-                query=query, parameters=params, enable_cross_partition_query=True
+                query=query, parameters=params
             ):
                 return item
             return None
@@ -726,7 +740,32 @@ class SessionsCosmosClient:
             query = "SELECT * FROM c WHERE c.type = 'user' AND c.stripe_customer_id = @cid"
             params = [{"name": "@cid", "value": customer_id}]
             async for item in container.query_items(
-                query=query, parameters=params, enable_cross_partition_query=True
+                query=query, parameters=params
             ):
                 return item
             return None
+
+    # ── Stripe Idempotency ──
+
+    async def has_stripe_event_been_processed(self, event_id: str) -> bool:
+        """Return True if we have already processed this Stripe event ID."""
+        async with self._client() as client:
+            container = await self._container(client)
+            try:
+                item = await container.read_item(item=event_id, partition_key="system")
+                return item.get("type") == "stripe_event"
+            except Exception:
+                return False
+
+    async def record_stripe_event(self, event_id: str, event_type: str) -> None:
+        """Mark a Stripe event ID as processed. Partition: userId='system'."""
+        doc = {
+            "id": event_id,
+            "type": "stripe_event",
+            "userId": "system",
+            "eventType": event_type,
+            "processedAt": datetime.now(timezone.utc).isoformat(),
+        }
+        async with self._client() as client:
+            container = await self._container(client)
+            await container.upsert_item(doc)

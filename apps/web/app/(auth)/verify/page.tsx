@@ -1,11 +1,10 @@
 "use client";
 
-import { Suspense } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
+import { signIn } from "next-auth/react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useState } from "react";
 
 import { LoaderIcon } from "@/components/icons";
-import { verifyMagicLink } from "../actions";
 
 function VerifyContent() {
   const router = useRouter();
@@ -13,6 +12,7 @@ function VerifyContent() {
   const token = searchParams.get("token");
 
   const [error, setError] = useState<string | null>(null);
+  const attempted = useRef(false);
 
   useEffect(() => {
     if (!token) {
@@ -20,21 +20,16 @@ function VerifyContent() {
       return;
     }
 
-    let cancelled = false;
+    if (attempted.current) return;
+    attempted.current = true;
 
-    verifyMagicLink(token).then((result) => {
-      if (cancelled) return;
-
-      if (result.status === "success") {
+    signIn("magic-link", { token, redirect: false }).then((result) => {
+      if (result?.ok && !result.error) {
         router.replace("/");
       } else {
         setError("Invalid or expired link. Please request a new one.");
       }
     });
-
-    return () => {
-      cancelled = true;
-    };
   }, [token, router]);
 
   if (error) {

@@ -29,12 +29,23 @@ export async function proxy(request: NextRequest) {
     const baseUrl = forwardedHost
       ? `${forwardedProto}://${forwardedHost}`
       : request.url;
-    const externalUrl = `${baseUrl}${request.nextUrl.pathname}${request.nextUrl.search}`;
-    const redirectUrl = encodeURIComponent(externalUrl);
 
-    return NextResponse.redirect(
-      new URL(`/api/auth/guest?redirectUrl=${redirectUrl}`, baseUrl)
-    );
+    if (isDevelopmentEnvironment) {
+      // Dev only: auto-create a guest session so unauthenticated users can browse
+      const externalUrl = `${baseUrl}${request.nextUrl.pathname}${request.nextUrl.search}`;
+      const redirectUrl = encodeURIComponent(externalUrl);
+      return NextResponse.redirect(
+        new URL(`/api/auth/guest?redirectUrl=${redirectUrl}`, baseUrl)
+      );
+    }
+
+    // Production: redirect to /login unless already on a public auth page
+    const publicPaths = ["/login", "/register"];
+    const isPublicPath =
+      publicPaths.includes(pathname) || pathname.startsWith("/verify");
+    if (!isPublicPath) {
+      return NextResponse.redirect(new URL("/login", baseUrl));
+    }
   }
 
   const isGuest = guestRegex.test(token?.email ?? "");

@@ -6,14 +6,41 @@ import { ThemeProvider } from "@/components/theme-provider";
 import "./globals.css";
 import { SessionProvider } from "next-auth/react";
 
+const APP_URL =
+  process.env.NEXT_PUBLIC_APP_URL ||
+  "https://ari-web.azurewebsites.net";
+
 export const metadata: Metadata = {
-  metadataBase: new URL("https://chat.vercel.ai"),
+  metadataBase: new URL(APP_URL),
   title: "ARI — Artificial Real Estate Intelligence",
   description:
     "AI-powered real estate investment assistant by REI Labs. Analyze deals, run comps, generate leads, and draft contracts.",
   icons: {
     icon: "/favicon.ico",
     apple: "/apple-icon.png",
+  },
+  openGraph: {
+    title: "ARI — Artificial Real Estate Intelligence",
+    description:
+      "AI-powered real estate investment assistant by REI Labs. Analyze deals, run comps, generate leads, and draft contracts.",
+    url: APP_URL,
+    siteName: "ARI by REI Labs",
+    images: [
+      {
+        url: "/opengraph-image",
+        width: 2400,
+        height: 1256,
+        alt: "ARI — Artificial Real Estate Intelligence",
+      },
+    ],
+    type: "website",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "ARI — Artificial Real Estate Intelligence",
+    description:
+      "AI-powered real estate investment assistant by REI Labs. Analyze deals, run comps, generate leads, and draft contracts.",
+    images: ["/twitter-image"],
   },
 };
 

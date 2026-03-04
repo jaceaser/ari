@@ -8,9 +8,24 @@ import { Button } from "@/components/ui/button";
 type BillingStatus = {
   active: boolean;
   plan: string | null;
+  tier: string | null;
   status: string | null;
   expires_at: string | null;
 };
+
+const TIER_LABELS: Record<string, string> = {
+  elite: "ARI Elite",
+  pro: "ARI Pro",
+  basic: "ARI Basic",
+  ari_elite: "ARI Elite",
+  ari_pro: "ARI Pro",
+  ari_lite: "ARI Basic",
+};
+
+function formatPlan(tier: string | null, plan: string | null): string | null {
+  const key = (tier || plan || "").toLowerCase();
+  return TIER_LABELS[key] ?? tier ?? plan ?? null;
+}
 
 export default function BillingPage() {
   const searchParams = useSearchParams();
@@ -72,10 +87,10 @@ export default function BillingPage() {
               Active
             </span>
           </div>
-          {billing.plan && (
+          {formatPlan(billing.tier, billing.plan) && (
             <div className="flex items-center justify-between">
               <span className="text-sm text-muted-foreground">Plan</span>
-              <span className="text-sm font-medium">{billing.plan}</span>
+              <span className="text-sm font-medium">{formatPlan(billing.tier, billing.plan)}</span>
             </div>
           )}
           {billing.expires_at && (

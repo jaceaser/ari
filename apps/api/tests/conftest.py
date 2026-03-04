@@ -29,9 +29,10 @@ def _phase2_env(monkeypatch):
     # Reset cached JWT config so env changes take effect
     import middleware.auth as auth_mod
     auth_mod._JWT_SECRET = None
-    # Clear rate limiter between tests
-    from middleware.rate_limit import _limiter
+    # Clear rate limiters between tests
+    from middleware.rate_limit import _limiter, _auth_limiter
     _limiter._requests.clear()
+    _auth_limiter._requests.clear()
 
 
 @pytest.fixture
@@ -158,6 +159,10 @@ def mock_cosmos():
     mock.update_user_subscription = AsyncMock()
     mock.find_user_by_email = AsyncMock(return_value=None)
     mock.find_user_by_stripe_customer = AsyncMock(return_value=None)
+
+    # Stripe idempotency (PR11)
+    mock.has_stripe_event_been_processed = AsyncMock(return_value=False)
+    mock.record_stripe_event = AsyncMock()
 
     mock.create_lead_run = AsyncMock(return_value={"id": TEST_LEAD_RUN_ID})
     mock.get_lead_runs = AsyncMock(return_value=[

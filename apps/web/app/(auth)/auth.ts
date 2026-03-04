@@ -85,24 +85,35 @@ export const {
         if (!apiUrl) return null;
 
         try {
+          console.error("[authorize] Calling API:", `${apiUrl}/auth/magic-link/verify`);
           const res = await fetch(`${apiUrl}/auth/magic-link/verify`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ token }),
           });
 
-          if (!res.ok) return null;
+          console.error("[authorize] API status:", res.status);
+          if (!res.ok) {
+            const body = await res.text().catch(() => "(unreadable)");
+            console.error("[authorize] API error body:", body);
+            return null;
+          }
 
           const data = await res.json();
+          console.error("[authorize] API user:", JSON.stringify(data.user));
           const user = data.user;
-          if (!user?.id || !user?.email) return null;
+          if (!user?.id || !user?.email) {
+            console.error("[authorize] Missing user fields");
+            return null;
+          }
 
           return {
             id: user.id,
             email: user.email,
             type: "regular" as const,
           };
-        } catch {
+        } catch (err) {
+          console.error("[authorize] fetch error:", err);
           return null;
         }
       },

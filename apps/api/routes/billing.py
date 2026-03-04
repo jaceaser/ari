@@ -46,6 +46,9 @@ async def billing_status():
         "plan": sub.get("plan"),
         "status": sub.get("subscription_status"),
         "expires_at": sub.get("subscription_expires_at"),
+        "stripe_customer_id": sub.get("stripe_customer_id"),
+        "tier": sub.get("tier"),
+        "updated_at": sub.get("updated_at"),
     })
 
 

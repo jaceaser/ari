@@ -151,10 +151,15 @@ async def update_email():
     if existing and existing.get("userId") != user_id:
         return jsonify({"error": "Email already in use"}), 409
 
-    # Update the user document directly
+    # Update the user document in Cosmos
     await cosmos.update_user_email(user_id, new_email)
 
     return jsonify({"ok": True, "email": new_email})
+
+
+def _get_client_ip() -> str:
+    forwarded = request.headers.get("X-Forwarded-For", "")
+    return forwarded.split(",")[0].strip() if forwarded else (request.remote_addr or "unknown")
 
 
 @magic_link_bp.post("/auth/magic-link/verify")
@@ -172,8 +177,41 @@ async def verify_magic_link():
     if not cosmos:
         return jsonify({"error": "Server configuration error"}), 500
 
+    # Fetch raw doc BEFORE verify so we have email even if it's expired/invalid
+    raw_doc = await cosmos.get_magic_token_raw(token)
+
     doc = await cosmos.verify_magic_token(token)
     if not doc:
+        client_ip = _get_client_ip()
+        if raw_doc:
+            # Token existed but was expired or had been used
+            associated_email = raw_doc.get("email", "unknown")
+            issued_at = raw_doc.get("createdAt", "unknown")
+            expires_at = raw_doc.get("expiresAt", "unknown")
+            logger.warning(
+                "Magic link verification failed — expired or reused token",
+                extra={
+                    "event": "magic_link_failed",
+                    "reason": "expired_or_reused",
+                    "email": associated_email,
+                    "token": token,
+                    "issued_at": issued_at,
+                    "expires_at": expires_at,
+                    "client_ip": client_ip,
+                },
+            )
+        else:
+            # Token never existed (fabricated, already deleted, or wrong)
+            logger.warning(
+                "Magic link verification failed — unknown token",
+                extra={
+                    "event": "magic_link_failed",
+                    "reason": "not_found",
+                    "email": "unknown",
+                    "token": token,
+                    "client_ip": client_ip,
+                },
+            )
         return jsonify({"error": "Invalid or expired token"}), 401
 
     # Single-use: delete immediately
@@ -181,18 +219,20 @@ async def verify_magic_link():
 
     email = doc["email"]
 
-    # Check if user already exists with this email (handles email changes).
-    # If they changed their email, the user doc has the new email but the old user_id.
-    # Using find_user_by_email ensures we reuse the existing account.
-    existing = await cosmos.find_user_by_email(email)
-    if existing:
-        user_id = existing.get("userId", existing.get("id"))
-    else:
-        # Derive deterministic user ID for new users
-        user_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"ari:user:{email}"))
+    try:
+        # Check if user already exists with this email (handles email changes).
+        existing = await cosmos.find_user_by_email(email)
+        if existing:
+            user_id = existing.get("userId", existing.get("id"))
+        else:
+            # Derive deterministic user ID for new users
+            user_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"ari:user:{email}"))
 
-    # Ensure user exists in Cosmos
-    await cosmos.ensure_user(user_id, email)
+        # Ensure user exists in Cosmos
+        await cosmos.ensure_user(user_id, email)
+    except Exception:
+        logger.exception("verify_magic_link: failed to find/create user for %s", email)
+        raise
 
     # Issue JWT
     secret, algorithm = _get_jwt_config()
@@ -205,11 +245,12 @@ async def verify_magic_link():
         return jsonify({"error": "Server configuration error"}), 500
 
     now = datetime.datetime.now(datetime.timezone.utc)
+    expiry_hours = int(os.getenv("JWT_EXPIRY_HOURS", "24"))
     jwt_payload = {
         "sub": user_id,
         "email": email,
         "iat": now,
-        "exp": now + datetime.timedelta(hours=24),
+        "exp": now + datetime.timedelta(hours=expiry_hours),
     }
 
     jwt_token = pyjwt.encode(jwt_payload, secret, algorithm=algorithm)

@@ -20,6 +20,13 @@ from pydantic import BaseModel, Field
 from quart import Quart, request
 
 from legacy_tools import build_retrieval_query, extract_first_url, infer_lead_type_from_url
+from middleware.guardrails import (
+    Intent,
+    classify_intent,
+    check_injection,
+    is_path_allowed,
+    DOMAIN_RESTRICTION,
+)
 from schemas import ToolRequest
 
 # Structured logging setup
@@ -88,6 +95,85 @@ if LOCAL_ENV_PATH.exists():
         load_dotenv(LOCAL_ENV_PATH, override=False)
 
 app = Quart(__name__)
+
+# ---------------------------------------------------------------------------
+# Domain guardrail — runs before every tool POST
+# ---------------------------------------------------------------------------
+
+_GUARD_SKIP_METHODS = frozenset({"GET", "OPTIONS"})
+_GUARD_SKIP_PATHS = frozenset({
+    "/",
+    "/health",
+    "/tools",
+    "/tools/integration-config",
+})
+
+
+@app.before_request
+async def _domain_guard():
+    """
+    Enforce domain guardrails on every POST to /tools/*.
+
+    1. Extract prompt from JSON body.
+    2. Reject prompt injection attempts (400).
+    3. Classify intent (REAL_ESTATE_CORE / GENERAL / OFF_TOPIC / MALICIOUS).
+    4. Refuse MALICIOUS requests (403).
+    5. Block tools not in the intent's allowlist (422).
+    """
+    from quart import jsonify
+
+    if request.method in _GUARD_SKIP_METHODS:
+        return None
+
+    if request.path in _GUARD_SKIP_PATHS:
+        return None
+
+    if not request.path.startswith("/tools/"):
+        return None
+
+    body = await request.get_json(silent=True) or {}
+    prompt = (
+        str(body.get("prompt") or "")
+        or str((body.get("arguments") or {}).get("prompt") or "")
+    ).strip()
+
+    if not prompt:
+        return None  # no prompt to check — let the handler decide
+
+    # 1) Injection guard
+    injection_err = check_injection(prompt)
+    if injection_err:
+        logger.warning("[guard] Injection detected on %s: %.120s", request.path, prompt)
+        return jsonify({"error": "blocked", "detail": injection_err}), 400
+
+    # 2) Intent classification
+    intent = classify_intent(prompt)
+    logger.info("[guard] path=%s intent=%s", request.path, intent.value)
+
+    # 3) Malicious → refuse
+    if intent == Intent.MALICIOUS:
+        logger.warning("[guard] Malicious request on %s: %.120s", request.path, prompt)
+        return jsonify({"error": "blocked", "detail": "Request refused"}), 403
+
+    # 4) Tool allowlist by intent
+    if not is_path_allowed(request.path, intent):
+        logger.info(
+            "[guard] Path %s not allowed for intent %s", request.path, intent.value
+        )
+        detail = (
+            "I'm ARI, your real estate investment assistant. "
+            "That question doesn't match real estate topics. "
+            "Ask me about leads, comps, buyers, contracts, or strategy instead."
+            if intent == Intent.OFF_TOPIC
+            else f"This tool is not available for the current query intent ({intent.value})."
+        )
+        return jsonify({"error": "off_topic", "detail": detail}), 422
+
+    return None
+
+
+# ---------------------------------------------------------------------------
+
 
 ROUTE_KEYWORDS: dict[str, set[str]] = {
     "Leads": {
@@ -374,6 +460,14 @@ def _classify_prompt(prompt: str) -> dict[str, Any]:
     }
 
 
+def _build_system_prompt(key: str) -> str:
+    """Prepend DOMAIN_RESTRICTION to any route system prompt from env."""
+    base = ROUTE_PROMPTS.get(key, "")
+    if base:
+        return f"{DOMAIN_RESTRICTION}\n\n{base}"
+    return DOMAIN_RESTRICTION
+
+
 def _education_payload(prompt: str) -> dict[str, Any]:
     retrieval_query = build_retrieval_query(prompt)
     tokens = [t for t in retrieval_query.split() if len(t) > 3][:8]
@@ -381,7 +475,7 @@ def _education_payload(prompt: str) -> dict[str, Any]:
         "route": "Education",
         "retrieval_query": retrieval_query,
         "subtopics": tokens,
-        "route_system_prompt": ROUTE_PROMPTS.get("Education", ""),
+        "route_system_prompt": _build_system_prompt("Education"),
         "context_hint": (
             "User asked for educational context. Explain concepts, assumptions, and "
             "tradeoffs in plain language before tactical recommendations."
@@ -577,7 +671,7 @@ def _contracts_payload(prompt: str) -> dict[str, Any]:
     return {
         "route": "Contracts",
         "retrieval_query": build_retrieval_query(prompt),
-        "route_system_prompt": ROUTE_PROMPTS.get("Contracts", ""),
+        "route_system_prompt": _build_system_prompt("Contracts"),
         "contracts_expansion_prompt": ROUTE_PROMPTS.get("ContractsExpansion", ""),
         "expanded_prompt": expanded_prompt,
         "context_hint": "Contracts route. Be explicit about legal uncertainty and attorney review boundaries.",
@@ -588,7 +682,7 @@ def _strategy_payload(prompt: str) -> dict[str, Any]:
     return {
         "route": "Strategy",
         "retrieval_query": build_retrieval_query(prompt),
-        "route_system_prompt": ROUTE_PROMPTS.get("Strategy", ""),
+        "route_system_prompt": _build_system_prompt("Strategy"),
         "context_hint": (
             "Strategy route. Return phased plan (0-30, 31-90, 90+) with KPI checkpoints, "
             "constraints, and execution risks."
@@ -1024,6 +1118,47 @@ async def _buyers_payload_with_data(prompt: str, arguments: dict[str, Any]) -> d
     return payload
 
 
+async def _fetch_zillow_comps_fallback(address: str) -> dict[str, Any]:
+    """Fallback: scrape nearby Zillow listings as comp candidates when Bricked is unavailable."""
+    try:
+        from services.lead_gen import fetch_page_content, parse_property_data
+    except ImportError:
+        return {"ok": False, "error": "lead_gen service unavailable"}
+
+    # Extract city/state from address string (e.g. "123 Main St, Houston, TX 77001")
+    city, state = _extract_city_state(address)
+    if not city or not state:
+        parts = [p.strip() for p in address.split(",")]
+        if len(parts) >= 3:
+            city = parts[-2].strip()
+            state = parts[-1].strip().split()[0]
+        elif len(parts) == 2:
+            city = parts[0].strip()
+            state = parts[1].strip().split()[0]
+
+    city = (city or "").strip()
+    state = _normalize_state(state or "")
+
+    if not city or not state:
+        return {"ok": False, "error": "Could not extract city/state from address for Zillow fallback"}
+
+    url = _build_zillow_url(city, state, "fixer-upper")
+    if not url:
+        return {"ok": False, "error": "Could not build Zillow URL for comps fallback"}
+
+    logger.info("[comps fallback] Scraping Zillow for %s, %s: %s", city, state, url[:80])
+    content = await fetch_page_content(url)
+    if not content:
+        return {"ok": False, "error": "ScrapingBee fetch failed for Zillow comps fallback"}
+
+    df = parse_property_data(content)
+    if df.empty:
+        return {"ok": False, "error": f"No Zillow listings found for {city}, {state}"}
+
+    listings = df.to_dict(orient="records")
+    return {"ok": True, "listings": listings, "city": city, "state": state}
+
+
 async def _comps_payload_with_data(prompt: str, arguments: dict[str, Any]) -> dict[str, Any]:
     payload = _comps_payload(prompt)
     explicit_address = str(arguments.get("address") or "").strip()
@@ -1045,9 +1180,23 @@ async def _comps_payload_with_data(prompt: str, arguments: dict[str, Any]) -> di
 
     result = await _fetch_bricked_comps(selected_address, max_comps=max_comps)
     if not result.get("ok"):
-        payload["status"] = "error"
-        payload["message"] = result.get("error", "Bricked lookup failed.")
-        payload["bricked"] = None
+        logger.warning("[comps] Bricked failed (%s); trying Zillow fallback", result.get("error"))
+        zillow = await _fetch_zillow_comps_fallback(selected_address)
+        if zillow.get("ok"):
+            listings = zillow.get("listings", [])
+            payload["status"] = "ok"
+            payload["data_source"] = "zillow_fallback"
+            payload["bricked"] = None
+            payload["zillow_comps"] = listings[:20]
+            payload["comps_count"] = len(listings)
+            payload["message"] = (
+                f"Retrieved {len(listings)} nearby listings for {zillow['city']}, {zillow['state']} "
+                f"as comp candidates (Bricked unavailable)."
+            )
+        else:
+            payload["status"] = "error"
+            payload["message"] = result.get("error", "Bricked lookup failed.")
+            payload["bricked"] = None
         return payload
 
     trimmed = result.get("trimmed") or {}
@@ -1088,6 +1237,7 @@ async def root():
             "GET /tools",
             "POST /tools/integration-config",
             "POST /tools/classify",
+            "POST /tools/classify-intent",
             "POST /tools/education",
             "POST /tools/comps",
             "POST /tools/leads",
@@ -1145,6 +1295,29 @@ async def tool_classify():
     req = await _read_tool_request()
     prompt = _latest_user_prompt(req)
     return _ok("classify", _classify_prompt(prompt)), 200
+
+
+@app.post("/tools/classify-intent")
+async def tool_classify_intent():
+    """
+    Return the domain intent category for a given prompt.
+
+    Response fields:
+        intent          — REAL_ESTATE_CORE | REAL_ESTATE_GENERAL | OFF_TOPIC | MALICIOUS
+        allowed_tools   — list of tool paths the intent may access
+    """
+    req = await _read_tool_request()
+    prompt = _latest_user_prompt(req)
+    intent = classify_intent(prompt)
+    from middleware.guardrails import TOOL_ALLOWLIST, _BYPASS_PATHS
+    allowed = sorted(
+        TOOL_ALLOWLIST.get(intent, set()) | _BYPASS_PATHS
+    )
+    return _ok("classify-intent", {
+        "intent": intent.value,
+        "prompt": prompt,
+        "allowed_tools": allowed,
+    }), 200
 
 
 @app.post("/tools/integration-config")

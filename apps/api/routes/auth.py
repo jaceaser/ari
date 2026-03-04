@@ -60,11 +60,12 @@ async def exchange():
         await cosmos.ensure_user(user_id, email)
 
     now = datetime.datetime.now(datetime.timezone.utc)
+    expiry_hours = int(os.getenv("JWT_EXPIRY_HOURS", "24"))
     payload = {
         "sub": user_id,
         "email": email,
         "iat": now,
-        "exp": now + datetime.timedelta(hours=24),
+        "exp": now + datetime.timedelta(hours=expiry_hours),
     }
 
     token = pyjwt.encode(payload, secret, algorithm=algorithm)
