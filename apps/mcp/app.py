@@ -429,17 +429,43 @@ def _extract_city_state(text: str) -> tuple[Optional[str], Optional[str]]:
         if first_word not in noise_words:
             return city_candidate, _normalize_state(match.group(2))
 
-    # No-comma fallback: "{location} {2-letter state}" e.g. "hidalgo county tx"
+    # Preposition-anchored no-comma: "in {city} {state}" or "in {city} {full state}"
     match = re.search(
-        r"\b([A-Za-z][A-Za-z .'-]{1,60}?)\s+([A-Z]{2})\b",
+        r"\bin\s+([A-Za-z][A-Za-z .'-]{1,40}?)\s+([A-Za-z]{2})\b",
         text, re.IGNORECASE,
     )
     if match:
         city_candidate = match.group(1).strip()
+        state_candidate = _normalize_state(match.group(2))
+        # Only accept if state_candidate is a valid US state abbreviation
+        _VALID_STATES = {
+            "AL","AK","AZ","AR","CA","CO","CT","DE","FL","GA","HI","ID","IL","IN","IA",
+            "KS","KY","LA","ME","MD","MA","MI","MN","MS","MO","MT","NE","NV","NH","NJ",
+            "NM","NY","NC","ND","OH","OK","OR","PA","RI","SC","SD","TN","TX","UT","VT",
+            "VA","WA","WV","WI","WY","DC",
+        }
+        if state_candidate in _VALID_STATES:
+            return city_candidate, state_candidate
+
+    # No-comma fallback: "{location} {2-letter state}" e.g. "hidalgo county tx"
+    # Limit city to 1-3 words max to avoid capturing lead-type phrases
+    match = re.search(
+        r"\b([A-Za-z][A-Za-z .'-]{1,30}?)\s+([A-Z]{2})\b",
+        text, re.IGNORECASE,
+    )
+    if match:
+        city_candidate = match.group(1).strip()
+        state_candidate = _normalize_state(match.group(2))
         noise_words = {"can", "get", "find", "show", "list", "give", "what", "the", "a", "me", "i", "in", "for", "near", "around"}
         first_word = city_candidate.split()[0].lower()
-        if first_word not in noise_words:
-            return city_candidate, _normalize_state(match.group(2))
+        _VALID_STATES = {
+            "AL","AK","AZ","AR","CA","CO","CT","DE","FL","GA","HI","ID","IL","IN","IA",
+            "KS","KY","LA","ME","MD","MA","MI","MN","MS","MO","MT","NE","NV","NH","NJ",
+            "NM","NY","NC","ND","OH","OK","OR","PA","RI","SC","SD","TN","TX","UT","VT",
+            "VA","WA","WV","WI","WY","DC",
+        }
+        if first_word not in noise_words and state_candidate in _VALID_STATES:
+            return city_candidate, state_candidate
 
     return None, None
 
