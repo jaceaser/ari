@@ -178,6 +178,7 @@ async def _domain_guard():
 ROUTE_KEYWORDS: dict[str, set[str]] = {
     "Leads": {
         "lead",
+        "leads",
         "seller",
         "zillow",
         "offmarket",
@@ -186,6 +187,18 @@ ROUTE_KEYWORDS: dict[str, set[str]] = {
         "preforeclosure",
         "pre-foreclosure",
         "fsbo",
+        "landlord",
+        "landlords",
+        "tired landlord",
+        "absentee",
+        "vacant",
+        "foreclosure",
+        "tax delinquent",
+        "motivated",
+        "probate",
+        "inherited",
+        "divorce",
+        "code violation",
     },
     "Comps": {
         "comp",

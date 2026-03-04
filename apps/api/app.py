@@ -968,9 +968,9 @@ def _tool_completion_args(
     }
 
     if _is_gpt5_deployment():
-        args["max_completion_tokens"] = 900
+        args["max_completion_tokens"] = 4096
     else:
-        args["max_tokens"] = 900
+        args["max_tokens"] = 4096
         args["temperature"] = 0
 
     return args
