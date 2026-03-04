@@ -230,6 +230,19 @@ ROUTE_KEYWORDS: dict[str, set[str]] = {
         "reo",
         "bank owned",
         "bank-owned",
+        "agent owned",
+        "agent listed",
+        "agent-owned",
+        "mls listed",
+        "broker listed",
+        "realtor listed",
+        "high equity",
+        "free and clear",
+        "equity rich",
+        "county",
+        "foreclosed",
+        "hud home",
+        "hud homes",
     },
     "Comps": {
         "comp",
@@ -608,17 +621,50 @@ _ZILLOW_URL_TEMPLATES: dict[str, str] = {
         '"apa":{"value":false},"manu":{"value":false},"apco":{"value":false},'
         '"lot":{"min":21780,"max":4356000}},"isListVisible":true,"category":"cat1"}'
     ),
+    "agent-owned": (
+        "https://www.zillow.com/%%SLUG%%/?searchQueryState="
+        '{"pagination":{},"filterState":{"sort":{"value":"globalrelevanceex"},'
+        '"fsba":{"value":true},"fsbo":{"value":false},"nc":{"value":false},'
+        '"cmsn":{"value":false},"auc":{"value":false},"fore":{"value":false},'
+        '"doz":{"value":"90"}},"isListVisible":true,"category":"cat1"}'
+    ),
+    "reo": (
+        "https://www.zillow.com/%%SLUG%%/?searchQueryState="
+        '{"pagination":{},"filterState":{"sort":{"value":"globalrelevanceex"},'
+        '"fore":{"value":true},"fsba":{"value":false},"fsbo":{"value":false},'
+        '"nc":{"value":false},"cmsn":{"value":false},"auc":{"value":false},'
+        '"doz":{"value":"36m"}},"isListVisible":true,"category":"cat1"}'
+    ),
+    "high-equity": (
+        "https://www.zillow.com/%%SLUG%%/?searchQueryState="
+        '{"pagination":{},"filterState":{"sort":{"value":"globalrelevanceex"},'
+        '"fsba":{"value":true},"fsbo":{"value":true},"nc":{"value":false},'
+        '"cmsn":{"value":false},"auc":{"value":false},"fore":{"value":false},'
+        '"price":{"min":50000,"max":400000},"mp":{"min":0,"max":2000},'
+        '"doz":{"value":"36m"}},"isListVisible":true,"category":"cat1"}'
+    ),
 }
 
 # Keywords that map to a template
 _LEAD_TYPE_KEYWORDS: dict[str, list[str]] = {
-    "fsbo": ["fsbo", "for sale by owner", "by owner"],
-    "pre-foreclosure": ["pre-foreclosure", "preforeclosure", "pre foreclosure", "auction"],
+    "fsbo": ["fsbo", "for sale by owner", "by owner", "owner listed"],
+    "pre-foreclosure": ["pre-foreclosure", "preforeclosure", "pre foreclosure", "auction", "lis pendens"],
     "fixer-upper": ["fixer", "fixer-upper", "fixer upper", "rehab", "wholesale", "distressed"],
     "as-is": ["as-is", "as is"],
-    "tired-landlords": ["tired landlord", "landlord", "rental"],
+    "tired-landlords": ["tired landlord", "landlord", "rental", "absentee owner", "absentee"],
     "subject-to": ["subject to", "subject-to", "subto", "sub to", "sub2"],
     "land": ["land", "lot", "vacant land", "acreage"],
+    "agent-owned": [
+        "agent owned", "agent listed", "agent-owned", "realtor listed",
+        "mls listed", "listed by agent", "broker listed",
+    ],
+    "reo": [
+        "reo", "bank owned", "bank-owned", "foreclosure", "foreclosed",
+        "hud home", "hud homes",
+    ],
+    "high-equity": [
+        "high equity", "free and clear", "no mortgage", "paid off", "equity rich",
+    ],
 }
 
 
@@ -1389,6 +1435,9 @@ async def tool_leads():
     payload = _leads_payload(prompt)
 
     scrape_url = req.arguments.get("url") or payload.get("detected_url")
+    _debug_city: Optional[str] = None
+    _debug_state: Optional[str] = None
+    _debug_lead_type: Optional[str] = None
 
     # If no URL provided, try to auto-generate from location + lead type
     if not scrape_url:
@@ -1397,6 +1446,9 @@ async def tool_leads():
             lead_type = _infer_lead_type_from_prompt(prompt)
             scrape_url = _build_zillow_url(city, state, lead_type)
             if scrape_url:
+                _debug_city = city
+                _debug_state = state
+                _debug_lead_type = lead_type
                 payload["lead_type"] = lead_type.replace("-", " ").title()
                 logger.info("Auto-generated Zillow URL for %s, %s (%s)", city, state, lead_type)
                 logger.info("Scrape URL: %s", scrape_url)
@@ -1436,6 +1488,12 @@ async def tool_leads():
                     f"The download link should also use markdown: "
                     f"[Download Full List ({count} properties)]({excel_link})"
                 )
+
+            # Save source URL for debug logging (not exposed to model)
+            payload["_source_url"] = scrape_url
+            payload["_city"] = _debug_city
+            payload["_state"] = _debug_state
+            payload["_lead_type"] = _debug_lead_type
 
             # Strip source URLs from payload so model never sees them
             payload.pop("detected_url", None)

@@ -123,6 +123,16 @@ _CORE_SIGNALS: list[re.Pattern[str]] = [
         r"bank[\s\-]owned",
         r"reo\s+propert",
         r"behind\s+on\s+(payments|mortgage)",
+        r"agent[\s\-]owned",
+        r"agent[\s\-]listed",
+        r"mls[\s\-]listed",
+        r"foreclosed",
+        r"bank[\s\-]owned",
+        r"reo\b",
+        r"high[\s\-]equity",
+        r"free\s+and\s+clear",
+        r"hud\s+homes?",
+        r"county\s+(leads?|list|properties)",
     ]
 ]
 

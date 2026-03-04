@@ -655,27 +655,39 @@ async def _detect_and_save_lead_runs(
             continue
 
         tool_name = data.get("tool", "")
-        inner = data.get("data", {})
+        # MCP tool returns {"ok": True, "tool": "leads", "result": {...}}
+        inner = data.get("result", data.get("data", {}))
 
-        if tool_name != "mcp_leads_context":
+        if tool_name not in ("leads", "mcp_leads_context"):
             continue
 
         # Look for lead run indicators in the response
-        file_url = inner.get("file_url") or inner.get("fileUrl") or ""
-        result_count = inner.get("result_count") or inner.get("resultCount") or 0
-        if not file_url or not result_count:
+        excel_link = inner.get("excel_link") or inner.get("file_url") or inner.get("fileUrl") or ""
+        result_count = (
+            inner.get("properties_count")
+            or inner.get("result_count")
+            or inner.get("resultCount")
+            or 0
+        )
+        if not excel_link or not result_count:
             continue
+
+        city = inner.get("_city") or inner.get("city") or ""
+        state = inner.get("_state") or inner.get("state") or ""
+        location = f"{city}, {state}".strip(", ") if (city or state) else inner.get("location", "")
+        source_url = inner.get("_source_url") or ""
 
         try:
             await cosmos.create_lead_run(
                 user_id=user_id,
                 session_id=session_id,
                 summary=inner.get("summary", "Lead generation run"),
-                location=inner.get("location", ""),
-                strategy=inner.get("strategy", ""),
+                location=location,
+                strategy=inner.get("_lead_type") or inner.get("strategy", ""),
                 result_count=int(result_count),
-                file_url=file_url,
+                file_url=excel_link,
                 filters=inner.get("filters"),
+                source_url=source_url,
             )
         except Exception:
             logger.exception("Failed to persist lead run")

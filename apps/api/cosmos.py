@@ -285,6 +285,7 @@ class SessionsCosmosClient:
         result_count: int,
         file_url: str,
         filters: Optional[dict[str, Any]] = None,
+        source_url: str = "",
     ) -> dict[str, Any]:
         run_id = str(uuid.uuid4())
         doc = {
@@ -298,6 +299,7 @@ class SessionsCosmosClient:
             "resultCount": result_count,
             "filters": filters,
             "fileUrl": file_url,
+            "sourceUrl": source_url,
             "createdAt": datetime.now(timezone.utc).isoformat(),
         }
         async with self._client() as client:
