@@ -7,6 +7,7 @@ It is intended to be called by apps/api only.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import random
@@ -384,6 +385,95 @@ def _latest_user_prompt(req: ToolRequest) -> str:
         if isinstance(content, str) and content.strip():
             return content.strip()
     return ""
+
+
+_LEAD_TYPE_LIST = ", ".join([
+    "fsbo", "pre-foreclosure", "fixer-upper", "as-is", "tired-landlords",
+    "subject-to", "land", "agent-owned", "reo", "high-equity",
+])
+
+_LOCATION_EXTRACT_SYSTEM = (
+    "You extract real estate lead search parameters from a user prompt.\n"
+    "Return ONLY a JSON object (no markdown, no explanation) with these fields:\n"
+    "  city: string (city or county name, title case) or null\n"
+    "  state: string (2-letter abbreviation, uppercase) or null\n"
+    f"  lead_type: one of [{_LEAD_TYPE_LIST}] — pick the closest match\n"
+    "Examples:\n"
+    '  "tired landlords in Fort Worth TX" → {"city":"Fort Worth","state":"TX","lead_type":"tired-landlords"}\n'
+    '  "fsbo in Austin, Texas" → {"city":"Austin","state":"TX","lead_type":"fsbo"}\n'
+    '  "bank owned homes Dallas TX" → {"city":"Dallas","state":"TX","lead_type":"reo"}\n'
+    '  "agent listed properties San Antonio" → {"city":"San Antonio","state":"TX","lead_type":"agent-owned"}\n'
+    '  "pre-foreclosures Harris County TX" → {"city":"Harris County","state":"TX","lead_type":"pre-foreclosure"}\n'
+)
+
+
+def _get_aoai_client():
+    """Return a cached AsyncAzureOpenAI client, or None if not configured."""
+    endpoint = os.getenv("AZURE_OPENAI_ENDPOINT") or (
+        f"https://{os.getenv('AZURE_OPENAI_RESOURCE', '')}.openai.azure.com/"
+        if os.getenv("AZURE_OPENAI_RESOURCE") else ""
+    )
+    key = os.getenv("AZURE_OPENAI_KEY", "")
+    if not endpoint or not key:
+        return None
+    try:
+        from openai import AsyncAzureOpenAI
+        return AsyncAzureOpenAI(
+            azure_endpoint=endpoint,
+            api_key=key,
+            api_version=os.getenv("AZURE_OPENAI_API_VERSION", "2024-12-01-preview"),
+        )
+    except Exception:
+        return None
+
+
+async def _ai_extract_lead_params(prompt: str) -> tuple[Optional[str], Optional[str], str]:
+    """
+    Use Azure OpenAI mini model to extract city, state, and lead_type from a prompt.
+    Falls back to regex extraction if the model call fails.
+    Returns (city, state, lead_type).
+    """
+    client = _get_aoai_client()
+    model = os.getenv("AZURE_OPENAI_CLASSIFICATION_MODEL", os.getenv("AZURE_OPENAI_MODEL", "gpt-5.2-chat"))
+    if client:
+        try:
+            response = await client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": _LOCATION_EXTRACT_SYSTEM},
+                    {"role": "user", "content": prompt},
+                ],
+                max_tokens=80,
+                temperature=0,
+            )
+            raw = (response.choices[0].message.content or "").strip()
+            # Strip markdown fences if present
+            if raw.startswith("```"):
+                raw = raw.split("```")[1].lstrip("json").strip()
+            parsed = json.loads(raw)
+            city = parsed.get("city") or None
+            state = (parsed.get("state") or "").upper() or None
+            lead_type = parsed.get("lead_type") or "fixer-upper"
+            if lead_type not in _ZILLOW_URL_TEMPLATES:
+                lead_type = "fixer-upper"
+            logger.info("[leads] AI extracted: city=%r state=%r lead_type=%r", city, state, lead_type)
+            return city, state, lead_type
+        except Exception:
+            logger.exception("[leads] AI extraction failed; falling back to regex")
+
+    # Regex fallback
+    city, state = _extract_city_state(prompt)
+    lead_type = _infer_lead_type_from_prompt(prompt)
+    return city, state, lead_type
+
+
+async def _ai_extract_city_state(prompt: str) -> tuple[Optional[str], Optional[str]]:
+    """
+    Use Azure OpenAI mini model to extract city and state for buyers queries.
+    Falls back to regex if the model call fails.
+    """
+    city, state, _ = await _ai_extract_lead_params(prompt)
+    return city, state
 
 
 def _extract_city_state(text: str) -> tuple[Optional[str], Optional[str]]:
@@ -1155,7 +1245,13 @@ def _generate_buyers_excel(
 
 async def _buyers_payload_with_data(prompt: str, arguments: dict[str, Any]) -> dict[str, Any]:
     payload = _buyers_payload(prompt)
-    city, state, source = _normalize_city_state(prompt, arguments)
+    city, state = await _ai_extract_city_state(prompt)
+    # Fall back to explicit arguments if AI didn't find a location
+    if not city:
+        city = str(arguments.get("city") or "").strip() or None
+    if not state:
+        state = str(arguments.get("state") or "").strip() or None
+    source = "ai" if (city or state) else "none"
     payload["city"] = city
     payload["state"] = state
     payload["location_source"] = source
@@ -1465,18 +1561,17 @@ async def tool_leads():
     _debug_state: Optional[str] = None
     _debug_lead_type: Optional[str] = None
 
-    # If no URL provided, try to auto-generate from location + lead type
+    # If no URL provided, use AI to extract location + lead type and build Zillow URL
     if not scrape_url:
-        city, state = _extract_city_state(prompt)
+        city, state, lead_type = await _ai_extract_lead_params(prompt)
         if city:
-            lead_type = _infer_lead_type_from_prompt(prompt)
             scrape_url = _build_zillow_url(city, state, lead_type)
             if scrape_url:
                 _debug_city = city
                 _debug_state = state
                 _debug_lead_type = lead_type
                 payload["lead_type"] = lead_type.replace("-", " ").title()
-                logger.info("Auto-generated Zillow URL for %s, %s (%s)", city, state, lead_type)
+                logger.info("AI-generated Zillow URL for %s, %s (%s)", city, state, lead_type)
                 logger.info("Scrape URL: %s", scrape_url)
 
     if scrape_url:
