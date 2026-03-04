@@ -108,6 +108,21 @@ _CORE_SIGNALS: list[re.Pattern[str]] = [
         r"absentee\s+landlords?",
         r"list\s+of\s+landlords?",
         r"find\s+landlords?",
+        r"for\s+sale\s+by\s+owner",
+        r"sellers?\s+list",
+        r"list\s+of\s+sellers?",
+        r"foreclosures?",
+        r"tax\s+liens?",
+        r"delinquent",
+        r"high\s+equity",
+        r"free\s+and\s+clear",
+        r"out[\s\-]of[\s\-]state\s+owners?",
+        r"probate",
+        r"inherited\s+propert",
+        r"divorce\s+leads?",
+        r"bank[\s\-]owned",
+        r"reo\s+propert",
+        r"behind\s+on\s+(payments|mortgage)",
     ]
 ]
 
