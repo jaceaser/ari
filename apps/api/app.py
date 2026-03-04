@@ -160,6 +160,30 @@ _MAX_TOOL_RESULT_CHARS = int(os.getenv("MAX_TOOL_RESULT_CHARS", "12000"))  # ≈
 
 _azure_client: AsyncAzureOpenAI | None = None
 
+# System prompt injected into the planning/orchestration phase so the model
+# knows which tools to call for which request types.
+_ORCHESTRATION_SYSTEM_PROMPT = (
+    "You are ARI, an AI assistant for real estate investors. You have access to live data tools.\n\n"
+    "TOOL ROUTING — follow exactly:\n\n"
+    "1. User asks for a LIST of properties, leads, sellers, landlords, or contacts in a city/county:\n"
+    "   → IMMEDIATELY call mcp_leads_context. NEVER answer from training knowledge.\n"
+    "   Triggers: 'tired landlords', 'agent owned', 'agent listed', 'fsbo', 'for sale by owner',\n"
+    "   'foreclosures', 'pre-foreclosures', 'reo', 'bank owned', 'motivated sellers',\n"
+    "   'absentee owners', 'vacant', 'tax delinquent', 'high equity', 'free and clear',\n"
+    "   'probate', 'code violations', 'lis pendens', 'distressed', 'inherited', 'divorce leads',\n"
+    "   'hud homes', or ANY phrase like 'get me a list of X in [city]'.\n\n"
+    "2. User asks for cash buyers or investor contacts in a city:\n"
+    "   → Call mcp_buyers_search.\n\n"
+    "3. User asks for comps, ARV, or after-repair value:\n"
+    "   → Call mcp_bricked_comps or mcp_comps_context.\n\n"
+    "4. User asks about attorneys or title:\n"
+    "   → Call mcp_attorneys_context.\n\n"
+    "5. Educational question about real estate (no live data needed):\n"
+    "   → Call mcp_education_context or mcp_strategy_context or mcp_contracts_context.\n\n"
+    "CRITICAL: For rules 1 and 2, you MUST call the live data tool. "
+    "Do not answer lead or buyer list requests from training knowledge."
+)
+
 MCP_TOOL_ENDPOINTS: dict[str, str] = {
     "mcp_integration_config": "/tools/integration-config",
     "mcp_classify_route": "/tools/classify",
@@ -250,7 +274,16 @@ MCP_TOOL_DEFINITIONS: list[dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "mcp_leads_context",
-            "description": "Scrape lead properties from a Zillow URL and return an Excel download link with property previews. If the user provides a location without a URL, generate the appropriate Zillow search URL and pass it as the url argument. Always call this tool for lead requests — do not generate Zillow URLs as text.",
+            "description": (
+                "REQUIRED for ANY request for a list of properties, leads, sellers, or real estate contacts in a city or county. "
+                "This tool retrieves LIVE data from Zillow and returns a downloadable Excel file. "
+                "You MUST call this tool — NEVER answer lead requests from training knowledge. "
+                "Call this for: 'tired landlords', 'agent owned', 'agent listed', 'fsbo', 'for sale by owner', "
+                "'foreclosures', 'pre-foreclosures', 'reo', 'bank owned', 'motivated sellers', 'absentee owners', "
+                "'vacant properties', 'tax delinquent', 'high equity', 'free and clear', 'probate', 'code violations', "
+                "'lis pendens', 'distressed properties', 'inherited properties', 'divorce leads', 'hud homes', "
+                "or ANY phrase like 'get me a list of [property type] in [city]'."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -1515,7 +1548,11 @@ async def _run_mcp_tool_orchestration(
         return messages
 
     client = get_azure_client()
-    working_messages: list[dict[str, Any]] = list(messages)
+    # Prepend orchestration system prompt so the planning model knows routing rules.
+    # This is separate from the GLOBAL_SYSTEM_PROMPT which is injected for the
+    # streaming response phase.
+    orchestration_system = {"role": "system", "content": _ORCHESTRATION_SYSTEM_PROMPT}
+    working_messages: list[dict[str, Any]] = [orchestration_system, *messages]
     allowed_tools = await _get_tools_for_user(user_id)
     tool_names = [t.get("function", {}).get("name") for t in allowed_tools]
     logger.info("[MCP] Orchestration start — user_id=%s, %d tools available: %s",
