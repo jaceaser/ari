@@ -497,7 +497,7 @@ async def send_message(session_id: str):
                 model=AZURE_OPENAI_DEPLOYMENT,
                 messages=[],
                 stream=True,
-                max_tokens=65536,
+                max_tokens=100000,
                 temperature=0.3,
             )
 
