@@ -1013,7 +1013,7 @@ _GENERATE_DOCUMENT_TOOL = {
     "type": "function",
     "function": {
         "name": "generate_document",
-        "description": "Convert markdown content to a downloadable Word document (.docx). You MUST call this tool whenever you create a document, contract, agreement, lease, report, or any long-form content. NEVER generate fake download links — ALWAYS use this tool to get a real download URL.",
+        "description": "Convert markdown content to a downloadable Word document (.docx). You MUST call this tool whenever you create a document, contract, agreement, lease, report, or any long-form content. NEVER generate fake download links — ALWAYS use this tool to get a real download URL. After calling this tool, copy the COMPLETE download URL from the result EXACTLY as-is (including all query string parameters after '?') into your response — never truncate or shorten it.",
         "parameters": {
             "type": "object",
             "properties": {
@@ -1154,7 +1154,7 @@ async def _handle_generate_document(arguments: dict[str, Any]) -> dict[str, Any]
             file_name=filename,
             data=buffer.getvalue(),
             content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            expiry_minutes=30,
+            expiry_minutes=60 * 24 * 7,  # 7 days
         )
     except Exception:
         logger.exception("Blob upload failed in tool call")
@@ -1163,10 +1163,18 @@ async def _handle_generate_document(arguments: dict[str, Any]) -> dict[str, Any]
     return {
         "ok": True,
         "tool": "generate_document",
+        "download_url": url,
         "data": {
             "url": url,
             "filename": filename,
-            "message": f"Document ready for download. Include this link in your response: {url}",
+            "message": (
+                f"IMPORTANT: The document has been generated successfully. "
+                f"You MUST include the following COMPLETE download URL in your response EXACTLY as shown. "
+                f"Do NOT shorten, truncate, or omit any part of the URL — the query string "
+                f"parameters after '?' are required for access and must be included verbatim.\n\n"
+                f"DOWNLOAD URL: {url}\n\n"
+                f"Render it as a markdown link: [Download {title}]({url})"
+            ),
         },
     }
 
