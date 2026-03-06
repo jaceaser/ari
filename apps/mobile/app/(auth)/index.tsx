@@ -14,6 +14,7 @@ import {
 import { useRouter } from 'expo-router';
 import { sendMagicLink, verifyMagicLink } from '../../lib/api';
 import { saveAuth } from '../../lib/auth';
+import { colors } from '../../lib/colors';
 
 export default function LoginScreen() {
   const router = useRouter();
@@ -63,6 +64,7 @@ export default function LoginScreen() {
           style={styles.kav}
         >
           <View style={styles.center}>
+            <Text style={styles.logo}>ARI</Text>
             <Text style={styles.emoji}>📬</Text>
             <Text style={styles.title}>Check your email</Text>
             <Text style={styles.subtitle}>
@@ -81,7 +83,7 @@ export default function LoginScreen() {
               value={token}
               onChangeText={setToken}
               placeholder="Paste token from email link"
-              placeholderTextColor="#9ca3af"
+              placeholderTextColor={colors.mutedForeground}
               autoCapitalize="none"
               autoCorrect={false}
               returnKeyType="go"
@@ -94,13 +96,16 @@ export default function LoginScreen() {
               disabled={!token.trim() || verifying}
             >
               {verifying ? (
-                <ActivityIndicator color="#fff" />
+                <ActivityIndicator color={colors.primaryForeground} />
               ) : (
                 <Text style={styles.buttonText}>Sign in with token</Text>
               )}
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.linkButton} onPress={() => { setSent(false); setToken(''); }}>
+            <TouchableOpacity
+              style={styles.linkButton}
+              onPress={() => { setSent(false); setToken(''); }}
+            >
               <Text style={styles.linkText}>Use a different email</Text>
             </TouchableOpacity>
           </View>
@@ -127,7 +132,7 @@ export default function LoginScreen() {
             value={email}
             onChangeText={setEmail}
             placeholder="you@example.com"
-            placeholderTextColor="#9ca3af"
+            placeholderTextColor={colors.mutedForeground}
             keyboardType="email-address"
             autoCapitalize="none"
             autoCorrect={false}
@@ -141,7 +146,7 @@ export default function LoginScreen() {
             disabled={!email.trim() || loading}
           >
             {loading ? (
-              <ActivityIndicator color="#fff" />
+              <ActivityIndicator color={colors.primaryForeground} />
             ) : (
               <Text style={styles.buttonText}>Send magic link</Text>
             )}
@@ -153,7 +158,7 @@ export default function LoginScreen() {
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: '#fff' },
+  safe: { flex: 1, backgroundColor: colors.background },
   kav: { flex: 1 },
   center: {
     flex: 1,
@@ -164,56 +169,56 @@ const styles = StyleSheet.create({
   logo: {
     fontSize: 40,
     fontWeight: '800',
-    color: '#1a56db',
-    letterSpacing: -1,
+    color: colors.primary,
+    letterSpacing: 2,
     marginBottom: 24,
   },
-  emoji: { fontSize: 48, marginBottom: 16 },
+  emoji: { fontSize: 40, marginBottom: 12 },
   title: {
     fontSize: 26,
     fontWeight: '700',
-    color: '#111827',
+    color: colors.foreground,
     marginBottom: 8,
     textAlign: 'center',
   },
   subtitle: {
     fontSize: 15,
-    color: '#6b7280',
+    color: colors.mutedForeground,
     textAlign: 'center',
     lineHeight: 22,
     marginBottom: 32,
   },
-  emailHighlight: { fontWeight: '600', color: '#111827' },
+  emailHighlight: { fontWeight: '600', color: colors.foreground },
   divider: {
     flexDirection: 'row',
     alignItems: 'center',
     width: '100%',
     marginBottom: 16,
   },
-  dividerLine: { flex: 1, height: 1, backgroundColor: '#e5e7eb' },
-  dividerText: { marginHorizontal: 12, fontSize: 13, color: '#9ca3af' },
+  dividerLine: { flex: 1, height: 1, backgroundColor: colors.border },
+  dividerText: { marginHorizontal: 12, fontSize: 13, color: colors.mutedForeground },
   input: {
     width: '100%',
     height: 52,
     borderRadius: 12,
     borderWidth: 1.5,
-    borderColor: '#e5e7eb',
+    borderColor: colors.border,
     paddingHorizontal: 16,
     fontSize: 16,
-    color: '#111827',
-    backgroundColor: '#f9fafb',
+    color: colors.foreground,
+    backgroundColor: colors.muted,
     marginBottom: 16,
   },
   button: {
     width: '100%',
     height: 52,
     borderRadius: 12,
-    backgroundColor: '#1a56db',
+    backgroundColor: colors.primary,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  buttonDisabled: { backgroundColor: '#93c5fd' },
-  buttonText: { color: '#fff', fontSize: 16, fontWeight: '600' },
+  buttonDisabled: { opacity: 0.5 },
+  buttonText: { color: colors.primaryForeground, fontSize: 16, fontWeight: '700' },
   linkButton: { marginTop: 24 },
-  linkText: { color: '#1a56db', fontSize: 15 },
+  linkText: { color: colors.primary, fontSize: 15, fontWeight: '600' },
 });

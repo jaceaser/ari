@@ -13,6 +13,7 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { listSessions, deleteSession, Session } from '../../lib/api';
+import { colors } from '../../lib/colors';
 
 export default function HistoryScreen() {
   const router = useRouter();
@@ -41,7 +42,7 @@ export default function HistoryScreen() {
     return (
       <SafeAreaView style={styles.safe}>
         <View style={styles.center}>
-          <ActivityIndicator size="large" color="#1a56db" />
+          <ActivityIndicator size="large" color={colors.primary} />
         </View>
       </SafeAreaView>
     );
@@ -75,7 +76,7 @@ export default function HistoryScreen() {
               onPress={() => handleDelete(item)}
               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             >
-              <Ionicons name="trash-outline" size={18} color="#d1d5db" />
+              <Ionicons name="trash-outline" size={18} color={colors.border} />
             </TouchableOpacity>
           </TouchableOpacity>
         )}
@@ -94,29 +95,29 @@ export default function HistoryScreen() {
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: '#fff' },
+  safe: { flex: 1, backgroundColor: colors.background },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   header: {
     height: 52,
     borderBottomWidth: 1,
-    borderBottomColor: '#e5e7eb',
+    borderBottomColor: colors.border,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  headerTitle: { fontSize: 17, fontWeight: '700', color: '#111827' },
+  headerTitle: { fontSize: 17, fontWeight: '700', color: colors.foreground },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 16,
     paddingVertical: 14,
-    backgroundColor: '#fff',
+    backgroundColor: colors.background,
   },
   rowContent: { flex: 1 },
-  rowTitle: { fontSize: 15, fontWeight: '500', color: '#111827', marginBottom: 2 },
-  rowDate: { fontSize: 12, color: '#9ca3af' },
+  rowTitle: { fontSize: 15, fontWeight: '500', color: colors.foreground, marginBottom: 2 },
+  rowDate: { fontSize: 12, color: colors.mutedForeground },
   deleteBtn: { padding: 4 },
-  separator: { height: 1, backgroundColor: '#f3f4f6', marginLeft: 16 },
+  separator: { height: 1, backgroundColor: colors.muted, marginLeft: 16 },
   empty: { alignItems: 'center', paddingTop: 60 },
-  emptyText: { fontSize: 15, color: '#9ca3af' },
+  emptyText: { fontSize: 15, color: colors.mutedForeground },
   emptyContainer: { flex: 1 },
 });

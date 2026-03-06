@@ -1,15 +1,16 @@
 import { Tabs } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { colors } from '../../lib/colors';
 
 export default function AppLayout() {
   return (
     <Tabs
       screenOptions={{
-        tabBarActiveTintColor: '#1a56db',
-        tabBarInactiveTintColor: '#9ca3af',
+        tabBarActiveTintColor: colors.primary,
+        tabBarInactiveTintColor: colors.mutedForeground,
         tabBarStyle: {
-          borderTopColor: '#e5e7eb',
-          backgroundColor: '#fff',
+          borderTopColor: colors.border,
+          backgroundColor: colors.background,
         },
         headerShown: false,
       }}
@@ -41,11 +42,7 @@ export default function AppLayout() {
           ),
         }}
       />
-      {/* Hidden from tabs — navigated to programmatically */}
-      <Tabs.Screen
-        name="chat/[id]"
-        options={{ href: null }}
-      />
+      <Tabs.Screen name="chat/[id]" options={{ href: null }} />
     </Tabs>
   );
 }

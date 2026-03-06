@@ -8,6 +8,7 @@ import {
   Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { colors } from '../lib/colors';
 
 type Props = {
   onSend: (text: string) => void;
@@ -24,6 +25,8 @@ export function ChatInput({ onSend, disabled }: Props) {
     setText('');
   };
 
+  const canSend = !!text.trim() && !disabled;
+
   return (
     <View style={styles.container}>
       <View style={styles.inputRow}>
@@ -32,7 +35,7 @@ export function ChatInput({ onSend, disabled }: Props) {
           value={text}
           onChangeText={setText}
           placeholder="Ask ARI anything..."
-          placeholderTextColor="#9ca3af"
+          placeholderTextColor={colors.mutedForeground}
           multiline
           maxLength={4000}
           editable={!disabled}
@@ -41,14 +44,14 @@ export function ChatInput({ onSend, disabled }: Props) {
           blurOnSubmit={false}
         />
         <TouchableOpacity
-          style={[styles.sendButton, (!text.trim() || disabled) && styles.sendButtonDisabled]}
+          style={[styles.sendButton, !canSend && styles.sendButtonDisabled]}
           onPress={handleSend}
-          disabled={!text.trim() || disabled}
+          disabled={!canSend}
         >
           {disabled ? (
-            <ActivityIndicator size="small" color="#fff" />
+            <ActivityIndicator size="small" color={colors.primaryForeground} />
           ) : (
-            <Ionicons name="arrow-up" size={20} color="#fff" />
+            <Ionicons name="arrow-up" size={20} color={colors.primaryForeground} />
           )}
         </TouchableOpacity>
       </View>
@@ -59,19 +62,18 @@ export function ChatInput({ onSend, disabled }: Props) {
 const styles = StyleSheet.create({
   container: {
     borderTopWidth: 1,
-    borderTopColor: '#e5e7eb',
-    backgroundColor: '#fff',
+    borderTopColor: colors.border,
+    backgroundColor: colors.background,
     paddingHorizontal: 12,
     paddingVertical: 8,
-    paddingBottom: Platform.OS === 'ios' ? 8 : 8,
   },
   inputRow: {
     flexDirection: 'row',
     alignItems: 'flex-end',
-    backgroundColor: '#f9fafb',
+    backgroundColor: colors.muted,
     borderRadius: 24,
     borderWidth: 1,
-    borderColor: '#e5e7eb',
+    borderColor: colors.border,
     paddingHorizontal: 14,
     paddingVertical: 8,
   },
@@ -79,7 +81,7 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 15,
     lineHeight: 21,
-    color: '#111827',
+    color: colors.foreground,
     maxHeight: 120,
     marginRight: 8,
   },
@@ -87,11 +89,11 @@ const styles = StyleSheet.create({
     width: 34,
     height: 34,
     borderRadius: 17,
-    backgroundColor: '#1a56db',
+    backgroundColor: colors.primary,
     alignItems: 'center',
     justifyContent: 'center',
   },
   sendButtonDisabled: {
-    backgroundColor: '#93c5fd',
+    backgroundColor: colors.border,
   },
 });

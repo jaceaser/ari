@@ -14,6 +14,7 @@ import { getUser, clearAuth } from '../../lib/auth';
 import { getBillingStatus, createPortalSession } from '../../lib/api';
 import type { AuthUser } from '../../lib/auth';
 import type { BillingStatus } from '../../lib/api';
+import { colors } from '../../lib/colors';
 
 export default function SettingsScreen() {
   const router = useRouter();
@@ -74,10 +75,14 @@ export default function SettingsScreen() {
       <View style={styles.section}>
         <Text style={styles.sectionLabel}>SUBSCRIPTION</Text>
         <View style={styles.card}>
-          <TouchableOpacity style={styles.row} onPress={handleManageBilling} disabled={loadingPortal}>
+          <TouchableOpacity
+            style={styles.row}
+            onPress={handleManageBilling}
+            disabled={loadingPortal}
+          >
             <Text style={styles.rowLabel}>Manage subscription</Text>
             {loadingPortal ? (
-              <ActivityIndicator size="small" color="#1a56db" />
+              <ActivityIndicator size="small" color={colors.primary} />
             ) : (
               <Text style={styles.rowChevron}>›</Text>
             )}
@@ -110,30 +115,30 @@ function Divider() {
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: '#f3f4f6' },
+  safe: { flex: 1, backgroundColor: colors.muted },
   header: {
     height: 52,
     borderBottomWidth: 1,
-    borderBottomColor: '#e5e7eb',
+    borderBottomColor: colors.border,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#fff',
+    backgroundColor: colors.background,
   },
-  headerTitle: { fontSize: 17, fontWeight: '700', color: '#111827' },
+  headerTitle: { fontSize: 17, fontWeight: '700', color: colors.foreground },
   section: { marginTop: 24, paddingHorizontal: 16 },
   sectionLabel: {
     fontSize: 12,
     fontWeight: '600',
-    color: '#6b7280',
+    color: colors.mutedForeground,
     marginBottom: 6,
     letterSpacing: 0.5,
   },
   card: {
-    backgroundColor: '#fff',
+    backgroundColor: colors.background,
     borderRadius: 12,
     overflow: 'hidden',
     borderWidth: 1,
-    borderColor: '#e5e7eb',
+    borderColor: colors.border,
   },
   row: {
     flexDirection: 'row',
@@ -142,9 +147,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 14,
   },
-  rowLabel: { fontSize: 15, color: '#111827' },
-  rowValue: { fontSize: 15, color: '#6b7280' },
-  rowChevron: { fontSize: 20, color: '#d1d5db' },
-  divider: { height: 1, backgroundColor: '#f3f4f6' },
-  danger: { color: '#dc2626' },
+  rowLabel: { fontSize: 15, color: colors.foreground },
+  rowValue: { fontSize: 15, color: colors.mutedForeground },
+  rowChevron: { fontSize: 20, color: colors.border },
+  divider: { height: 1, backgroundColor: colors.muted },
+  danger: { color: colors.destructive },
 });

@@ -17,6 +17,7 @@ import { ChatInput } from '../../../components/ChatInput';
 import { useChatStream } from '../../../hooks/useChatStream';
 import { getMessages, getSession } from '../../../lib/api';
 import { useQuery } from '@tanstack/react-query';
+import { colors } from '../../../lib/colors';
 
 export default function ChatScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -25,14 +26,12 @@ export default function ChatScreen() {
 
   const { messages, streaming, error, sendMessage, loadMessages } = useChatStream(id);
 
-  // Load session title
   const { data: session } = useQuery({
     queryKey: ['session', id],
     queryFn: () => getSession(id),
     enabled: !!id,
   });
 
-  // Load existing messages
   const { isLoading } = useQuery({
     queryKey: ['messages', id],
     queryFn: () => getMessages(id),
@@ -53,7 +52,7 @@ export default function ChatScreen() {
     <SafeAreaView style={styles.safe}>
       <View style={styles.header}>
         <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
-          <Ionicons name="chevron-back" size={24} color="#1a56db" />
+          <Ionicons name="chevron-back" size={24} color={colors.primary} />
         </TouchableOpacity>
         <Text style={styles.headerTitle} numberOfLines={1}>
           {session?.title ?? 'Chat'}
@@ -68,7 +67,7 @@ export default function ChatScreen() {
       >
         {isLoading ? (
           <View style={styles.loading}>
-            <ActivityIndicator size="large" color="#1a56db" />
+            <ActivityIndicator size="large" color={colors.primary} />
           </View>
         ) : (
           <FlatList
@@ -97,12 +96,12 @@ export default function ChatScreen() {
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: '#fff' },
+  safe: { flex: 1, backgroundColor: colors.background },
   flex: { flex: 1 },
   header: {
     height: 52,
     borderBottomWidth: 1,
-    borderBottomColor: '#e5e7eb',
+    borderBottomColor: colors.border,
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 8,
@@ -112,10 +111,15 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 16,
     fontWeight: '600',
-    color: '#111827',
+    color: colors.foreground,
     textAlign: 'center',
   },
   list: { paddingTop: 16, paddingBottom: 8 },
   loading: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  errorText: { color: '#dc2626', fontSize: 13, textAlign: 'center', padding: 8 },
+  errorText: {
+    color: colors.destructive,
+    fontSize: 13,
+    textAlign: 'center',
+    padding: 8,
+  },
 });

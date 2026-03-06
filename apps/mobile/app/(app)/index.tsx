@@ -13,9 +13,9 @@ import { ChatBubble } from '../../components/ChatBubble';
 import { ChatInput } from '../../components/ChatInput';
 import { useChatStream } from '../../hooks/useChatStream';
 import { createSession } from '../../lib/api';
+import { colors } from '../../lib/colors';
 
 export default function NewChatScreen() {
-  // Generate ID immediately so the hook always has a valid session ID
   const [sessionId] = useState(() => Crypto.randomUUID());
   const sessionCreatedRef = useRef(false);
 
@@ -29,7 +29,6 @@ export default function NewChatScreen() {
   }, [messages]);
 
   const handleSend = async (text: string) => {
-    // Create session on first message only
     if (!sessionCreatedRef.current) {
       sessionCreatedRef.current = true;
       try {
@@ -90,24 +89,24 @@ function EmptyState() {
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: '#fff' },
+  safe: { flex: 1, backgroundColor: colors.background },
   flex: { flex: 1 },
   header: {
     height: 52,
     borderBottomWidth: 1,
-    borderBottomColor: '#e5e7eb',
+    borderBottomColor: colors.border,
     alignItems: 'center',
     justifyContent: 'center',
   },
   headerTitle: {
     fontSize: 17,
-    fontWeight: '700',
-    color: '#1a56db',
-    letterSpacing: -0.5,
+    fontWeight: '800',
+    color: colors.primary,
+    letterSpacing: 1,
   },
   list: { paddingTop: 16, paddingBottom: 8 },
   errorText: {
-    color: '#dc2626',
+    color: colors.destructive,
     fontSize: 13,
     textAlign: 'center',
     paddingHorizontal: 16,
@@ -120,20 +119,21 @@ const styles = StyleSheet.create({
     paddingTop: 120,
   },
   emptyLogo: {
-    fontSize: 36,
+    fontSize: 40,
     fontWeight: '800',
-    color: '#1a56db',
+    color: colors.primary,
+    letterSpacing: 2,
     marginBottom: 8,
   },
   emptyTitle: {
     fontSize: 18,
     fontWeight: '600',
-    color: '#111827',
+    color: colors.foreground,
     marginBottom: 8,
   },
   emptyHint: {
     fontSize: 14,
-    color: '#9ca3af',
+    color: colors.mutedForeground,
     textAlign: 'center',
     paddingHorizontal: 40,
   },
