@@ -7,13 +7,12 @@ import {
   KeyboardAvoidingView,
   Platform,
   Text,
-  TouchableOpacity,
   ActivityIndicator,
 } from 'react-native';
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
+import { useLocalSearchParams } from 'expo-router';
 import { ChatBubble } from '../../../components/ChatBubble';
 import { ChatInput } from '../../../components/ChatInput';
+import { ChatHeader } from '../../../components/ChatHeader';
 import { useChatStream } from '../../../hooks/useChatStream';
 import { getMessages, getSession } from '../../../lib/api';
 import { useQuery } from '@tanstack/react-query';
@@ -21,7 +20,6 @@ import { colors } from '../../../lib/colors';
 
 export default function ChatScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const router = useRouter();
   const listRef = useRef<FlatList>(null);
 
   const { messages, streaming, error, sendMessage, loadMessages } = useChatStream(id);
@@ -36,29 +34,16 @@ export default function ChatScreen() {
     queryKey: ['messages', id],
     queryFn: () => getMessages(id),
     enabled: !!id,
-    select: (data) => {
-      loadMessages(data);
-      return data;
-    },
+    select: (data) => { loadMessages(data); return data; },
   });
 
   useEffect(() => {
-    if (messages.length > 0) {
-      listRef.current?.scrollToEnd({ animated: true });
-    }
+    if (messages.length > 0) listRef.current?.scrollToEnd({ animated: true });
   }, [messages]);
 
   return (
     <SafeAreaView style={styles.safe}>
-      <View style={styles.header}>
-        <TouchableOpacity style={styles.headerBtn} onPress={() => router.back()}>
-          <Ionicons name="chevron-back" size={24} color={colors.foreground} />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle} numberOfLines={1}>
-          {session?.title ?? 'Chat'}
-        </Text>
-        <View style={styles.headerBtn} />
-      </View>
+      <ChatHeader title={session?.title ?? 'Chat'} showBack />
 
       <KeyboardAvoidingView
         style={styles.flex}
@@ -78,17 +63,13 @@ export default function ChatScreen() {
               <ChatBubble
                 role={item.role}
                 text={item.text}
-                streaming={
-                  streaming &&
-                  index === messages.length - 1 &&
-                  item.role === 'assistant'
-                }
+                streaming={streaming && index === messages.length - 1 && item.role === 'assistant'}
               />
             )}
             contentContainerStyle={styles.list}
           />
         )}
-        {error ? <Text style={styles.errorText}>{error}</Text> : null}
+        {error ? <Text style={styles.error}>{error}</Text> : null}
         <ChatInput onSend={sendMessage} disabled={streaming || isLoading} />
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -98,29 +79,7 @@ export default function ChatScreen() {
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.background },
   flex: { flex: 1 },
-  header: {
-    height: 52,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.border,
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 4,
-    backgroundColor: colors.background,
-  },
-  headerBtn: { width: 44, alignItems: 'center' },
-  headerTitle: {
-    flex: 1,
-    fontSize: 16,
-    fontWeight: '600',
-    color: colors.foreground,
-    textAlign: 'center',
-  },
   list: { paddingTop: 12, paddingBottom: 8 },
   loading: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  errorText: {
-    color: colors.destructive,
-    fontSize: 13,
-    textAlign: 'center',
-    padding: 8,
-  },
+  error: { color: colors.destructive, fontSize: 13, textAlign: 'center', padding: 8 },
 });

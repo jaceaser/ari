@@ -13,6 +13,7 @@ import {
 import * as Crypto from 'expo-crypto';
 import { ChatBubble } from '../../components/ChatBubble';
 import { ChatInput } from '../../components/ChatInput';
+import { ChatHeader } from '../../components/ChatHeader';
 import { useChatStream } from '../../hooks/useChatStream';
 import { createSession } from '../../lib/api';
 import { colors } from '../../lib/colors';
@@ -53,9 +54,7 @@ export default function NewChatScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>ARI</Text>
-      </View>
+      <ChatHeader title="ARI" />
 
       <KeyboardAvoidingView
         style={styles.flex}
@@ -74,8 +73,7 @@ export default function NewChatScreen() {
               <Text style={styles.greeting}>How can I help you?</Text>
               <Text style={styles.greetingSub}>Real estate intelligence at your fingertips</Text>
             </View>
-
-            <View style={styles.suggestionsGrid}>
+            <View style={styles.suggestions}>
               {SUGGESTIONS.map((s) => (
                 <TouchableOpacity
                   key={s}
@@ -97,18 +95,14 @@ export default function NewChatScreen() {
               <ChatBubble
                 role={item.role}
                 text={item.text}
-                streaming={
-                  streaming &&
-                  index === messages.length - 1 &&
-                  item.role === 'assistant'
-                }
+                streaming={streaming && index === messages.length - 1 && item.role === 'assistant'}
               />
             )}
             contentContainerStyle={styles.list}
           />
         )}
 
-        {error ? <Text style={styles.errorText}>{error}</Text> : null}
+        {error ? <Text style={styles.error}>{error}</Text> : null}
         <ChatInput onSend={handleSend} disabled={streaming} />
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -118,33 +112,11 @@ export default function NewChatScreen() {
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.background },
   flex: { flex: 1 },
+  list: { paddingTop: 12, paddingBottom: 8 },
+  error: { color: colors.destructive, fontSize: 13, textAlign: 'center', padding: 8 },
 
-  header: {
-    height: 52,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.border,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: colors.background,
-  },
-  headerTitle: {
-    fontSize: 17,
-    fontWeight: '800',
-    color: colors.foreground,
-    letterSpacing: 2,
-  },
-
-  // Empty / home state
-  emptyContainer: {
-    flexGrow: 1,
-    paddingHorizontal: 20,
-    paddingTop: 48,
-    paddingBottom: 16,
-  },
-  emptyTop: {
-    alignItems: 'center',
-    marginBottom: 40,
-  },
+  emptyContainer: { flexGrow: 1, paddingHorizontal: 20, paddingTop: 48, paddingBottom: 16 },
+  emptyTop: { alignItems: 'center', marginBottom: 36 },
   logoCircle: {
     width: 64,
     height: 64,
@@ -159,48 +131,17 @@ const styles = StyleSheet.create({
     shadowRadius: 12,
     elevation: 6,
   },
-  logoText: {
-    fontSize: 28,
-    fontWeight: '800',
-    color: colors.primaryForeground,
-  },
-  greeting: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: colors.foreground,
-    marginBottom: 6,
-    textAlign: 'center',
-  },
-  greetingSub: {
-    fontSize: 14,
-    color: colors.mutedForeground,
-    textAlign: 'center',
-  },
-
-  suggestionsGrid: {
-    gap: 10,
-  },
+  logoText: { fontSize: 28, fontWeight: '800', color: colors.primaryForeground },
+  greeting: { fontSize: 22, fontWeight: '700', color: colors.foreground, marginBottom: 6, textAlign: 'center' },
+  greetingSub: { fontSize: 14, color: colors.mutedForeground, textAlign: 'center' },
+  suggestions: { gap: 10 },
   chip: {
     backgroundColor: colors.muted,
     borderRadius: 14,
-    borderWidth: 1,
+    borderWidth: StyleSheet.hairlineWidth,
     borderColor: colors.border,
     paddingHorizontal: 16,
     paddingVertical: 14,
   },
-  chipText: {
-    fontSize: 14,
-    color: colors.foreground,
-    lineHeight: 20,
-  },
-
-  // Chat
-  list: { paddingTop: 12, paddingBottom: 8 },
-  errorText: {
-    color: colors.destructive,
-    fontSize: 13,
-    textAlign: 'center',
-    paddingHorizontal: 16,
-    paddingBottom: 4,
-  },
+  chipText: { fontSize: 14, color: colors.foreground, lineHeight: 20 },
 });

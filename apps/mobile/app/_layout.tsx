@@ -2,10 +2,13 @@ import '../global.css';
 import { useEffect, useState } from 'react';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { isAuthenticated } from '../lib/auth';
 import { useRouter } from 'expo-router';
 
 SplashScreen.preventAutoHideAsync();
+
+const queryClient = new QueryClient();
 
 export default function RootLayout() {
   const [ready, setReady] = useState(false);
@@ -22,17 +25,15 @@ export default function RootLayout() {
 
   useEffect(() => {
     if (!ready) return;
-    if (authed) {
-      router.replace('/(app)');
-    } else {
-      router.replace('/(auth)');
-    }
+    router.replace(authed ? '/(app)' : '/(auth)');
   }, [ready, authed]);
 
   return (
-    <Stack screenOptions={{ headerShown: false }}>
-      <Stack.Screen name="(auth)" />
-      <Stack.Screen name="(app)" />
-    </Stack>
+    <QueryClientProvider client={queryClient}>
+      <Stack screenOptions={{ headerShown: false }}>
+        <Stack.Screen name="(auth)" />
+        <Stack.Screen name="(app)" />
+      </Stack>
+    </QueryClientProvider>
   );
 }
