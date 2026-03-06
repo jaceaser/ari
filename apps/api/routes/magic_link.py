@@ -117,7 +117,7 @@ async def send_magic_link():
     # The /auth/magic-link/open endpoint 302-redirects to ari://verify?token=...
     redirect_uri = (body.get("redirect_uri") or "").strip()
     frontend_url = _get_frontend_url()
-    api_url = (os.getenv("API_URL") or "https://reilabs-ari-api.azurewebsites.net").rstrip("/")
+    api_url = (os.getenv("API_URL") or "https://api.reilabs.ai").rstrip("/")
     if redirect_uri and redirect_uri.startswith("ari://"):
         # Send HTTPS link that redirects to the deep link
         import urllib.parse
