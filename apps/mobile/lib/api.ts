@@ -72,77 +72,93 @@ export async function deleteSession(id: string): Promise<void> {
 export type Message = {
   id: string;
   role: 'user' | 'assistant';
-  parts: Array<{ type: string; text?: string }>;
-  createdAt?: number;
+  content: string;
+  created_at?: string;
 };
 
 export async function getMessages(sessionId: string): Promise<Message[]> {
-  const data = await apiFetch<{ messages: Message[] }>(
-    `/sessions/${sessionId}/messages`,
-  );
-  return data.messages ?? [];
+  const data = await apiFetch<Message[]>(`/sessions/${sessionId}/messages`);
+  return Array.isArray(data) ? data : [];
 }
 
 // ─── Streaming ───────────────────────────────────────────────────────────────
 
-export async function streamMessage(
+export function streamMessage(
   sessionId: string,
   content: string,
   onChunk: (text: string) => void,
   onDone: () => void,
   onError: (err: Error) => void,
 ): Promise<void> {
-  const token = await getToken();
-  let buffer = '';
+  // Use XMLHttpRequest with onprogress — the only reliable streaming
+  // approach in React Native (response.body ReadableStream is flaky).
+  return getToken().then((token) => {
+    return new Promise<void>((resolve) => {
+      const xhr = new XMLHttpRequest();
+      let processed = 0;
+      let buffer = '';
+      let settled = false;
 
-  try {
-    const res = await fetch(`${API_BASE_URL}/sessions/${sessionId}/messages`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
-      body: JSON.stringify({ content }),
-    });
+      const settle = (fn: () => void) => {
+        if (settled) return;
+        settled = true;
+        fn();
+        resolve();
+      };
 
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`Stream ${res.status}: ${text}`);
-    }
+      xhr.open('POST', `${API_BASE_URL}/sessions/${sessionId}/messages`, true);
+      xhr.setRequestHeader('Content-Type', 'application/json');
+      if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
 
-    const reader = res.body?.getReader();
-    if (!reader) throw new Error('No response body');
+      xhr.onprogress = () => {
+        const raw = xhr.responseText;
+        const newData = raw.slice(processed);
+        processed = raw.length;
 
-    const decoder = new TextDecoder();
+        buffer += newData;
+        const lines = buffer.split('\n');
+        buffer = lines.pop() ?? '';
 
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() ?? '';
-
-      for (const line of lines) {
-        if (!line.startsWith('data: ')) continue;
-        const data = line.slice(6).trim();
-        if (data === '[DONE]') continue;
-        try {
-          const parsed = JSON.parse(data) as {
-            choices?: Array<{ delta?: { content?: string } }>;
-          };
-          const text = parsed.choices?.[0]?.delta?.content;
-          if (text) onChunk(text);
-        } catch {
-          // non-JSON line, skip
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          const data = line.slice(6).trim();
+          if (data === '[DONE]') continue;
+          try {
+            const parsed = JSON.parse(data) as {
+              choices?: Array<{ delta?: { content?: string } }>;
+              error?: { message?: string };
+            };
+            if (parsed.error?.message) {
+              settle(() => onError(new Error(parsed.error!.message)));
+              return;
+            }
+            const text = parsed.choices?.[0]?.delta?.content;
+            if (text) onChunk(text);
+          } catch { /* non-JSON SSE line — skip */ }
         }
-      }
-    }
+      };
 
-    onDone();
-  } catch (err) {
-    onError(err instanceof Error ? err : new Error(String(err)));
-  }
+      xhr.onload = () => {
+        if (xhr.status >= 400) {
+          let message = `Request failed (${xhr.status})`;
+          try {
+            const body = JSON.parse(xhr.responseText) as { detail?: string; error?: string };
+            if (body.detail) message = body.detail;
+            else if (typeof body.error === 'string') message = body.error;
+          } catch { /* ignore */ }
+          settle(() => onError(new Error(message)));
+        } else {
+          settle(() => onDone());
+        }
+      };
+
+      xhr.onerror = () => settle(() => onError(new Error('Network error')));
+      xhr.ontimeout = () => settle(() => onError(new Error('Request timed out')));
+      xhr.timeout = 120000; // 2 min timeout
+
+      xhr.send(JSON.stringify({ content }));
+    });
+  });
 }
 
 // ─── Billing ─────────────────────────────────────────────────────────────────

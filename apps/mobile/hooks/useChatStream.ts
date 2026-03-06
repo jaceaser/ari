@@ -62,12 +62,12 @@ export function useChatStream(sessionId: string) {
   );
 
   const loadMessages = useCallback(
-    (loaded: Array<{ id: string; role: 'user' | 'assistant'; parts: Array<{ type: string; text?: string }> }>) => {
+    (loaded: Array<{ id: string; role: 'user' | 'assistant'; content: string }>) => {
       setMessages(
         loaded.map((m) => ({
           id: m.id,
           role: m.role,
-          text: m.parts.find((p) => p.type === 'text')?.text ?? '',
+          text: m.content ?? '',
         })),
       );
     },
