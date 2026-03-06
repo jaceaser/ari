@@ -112,8 +112,14 @@ async def send_magic_link():
         logger.error("Cosmos DB not configured; cannot store magic token")
         return jsonify({"error": "Server configuration error"}), 500
 
+    # Allow mobile apps to specify a custom redirect URI (deep link).
+    # Only ari:// scheme and the configured frontend URL are permitted.
+    redirect_uri = (body.get("redirect_uri") or "").strip()
     frontend_url = _get_frontend_url()
-    link = f"{frontend_url}/verify?token={token}"
+    if redirect_uri and redirect_uri.startswith("ari://"):
+        link = f"{redirect_uri}?token={token}"
+    else:
+        link = f"{frontend_url}/verify?token={token}"
 
     try:
         await _send_email(email, link)

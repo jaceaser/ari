@@ -1,0 +1,140 @@
+import React, { useEffect, useRef, useState } from 'react';
+import {
+  View,
+  FlatList,
+  StyleSheet,
+  SafeAreaView,
+  KeyboardAvoidingView,
+  Platform,
+  Text,
+} from 'react-native';
+import * as Crypto from 'expo-crypto';
+import { ChatBubble } from '../../components/ChatBubble';
+import { ChatInput } from '../../components/ChatInput';
+import { useChatStream } from '../../hooks/useChatStream';
+import { createSession } from '../../lib/api';
+
+export default function NewChatScreen() {
+  // Generate ID immediately so the hook always has a valid session ID
+  const [sessionId] = useState(() => Crypto.randomUUID());
+  const sessionCreatedRef = useRef(false);
+
+  const { messages, streaming, error, sendMessage } = useChatStream(sessionId);
+  const listRef = useRef<FlatList>(null);
+
+  useEffect(() => {
+    if (messages.length > 0) {
+      listRef.current?.scrollToEnd({ animated: true });
+    }
+  }, [messages]);
+
+  const handleSend = async (text: string) => {
+    // Create session on first message only
+    if (!sessionCreatedRef.current) {
+      sessionCreatedRef.current = true;
+      try {
+        await createSession(sessionId);
+      } catch {
+        sessionCreatedRef.current = false;
+        return;
+      }
+    }
+    sendMessage(text);
+  };
+
+  return (
+    <SafeAreaView style={styles.safe}>
+      <View style={styles.header}>
+        <Text style={styles.headerTitle}>ARI</Text>
+      </View>
+      <KeyboardAvoidingView
+        style={styles.flex}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={0}
+      >
+        <FlatList
+          ref={listRef}
+          data={messages}
+          keyExtractor={(m) => m.id}
+          renderItem={({ item, index }) => (
+            <ChatBubble
+              role={item.role}
+              text={item.text}
+              streaming={
+                streaming &&
+                index === messages.length - 1 &&
+                item.role === 'assistant'
+              }
+            />
+          )}
+          contentContainerStyle={styles.list}
+          ListEmptyComponent={<EmptyState />}
+        />
+        {error && <Text style={styles.errorText}>{error}</Text>}
+        <ChatInput onSend={handleSend} disabled={streaming} />
+      </KeyboardAvoidingView>
+    </SafeAreaView>
+  );
+}
+
+function EmptyState() {
+  return (
+    <View style={styles.empty}>
+      <Text style={styles.emptyLogo}>ARI</Text>
+      <Text style={styles.emptyTitle}>Real Estate Intelligence</Text>
+      <Text style={styles.emptyHint}>
+        Ask for leads, comps, buyers, contracts, or strategy.
+      </Text>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  safe: { flex: 1, backgroundColor: '#fff' },
+  flex: { flex: 1 },
+  header: {
+    height: 52,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e5e7eb',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerTitle: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: '#1a56db',
+    letterSpacing: -0.5,
+  },
+  list: { paddingTop: 16, paddingBottom: 8 },
+  errorText: {
+    color: '#dc2626',
+    fontSize: 13,
+    textAlign: 'center',
+    paddingHorizontal: 16,
+    paddingBottom: 4,
+  },
+  empty: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingTop: 120,
+  },
+  emptyLogo: {
+    fontSize: 36,
+    fontWeight: '800',
+    color: '#1a56db',
+    marginBottom: 8,
+  },
+  emptyTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#111827',
+    marginBottom: 8,
+  },
+  emptyHint: {
+    fontSize: 14,
+    color: '#9ca3af',
+    textAlign: 'center',
+    paddingHorizontal: 40,
+  },
+});
