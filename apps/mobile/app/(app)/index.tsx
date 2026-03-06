@@ -11,6 +11,7 @@ import {
   ScrollView,
 } from 'react-native';
 import * as Crypto from 'expo-crypto';
+import { useQueryClient } from '@tanstack/react-query';
 import { ChatBubble } from '../../components/ChatBubble';
 import { ChatInput } from '../../components/ChatInput';
 import { ChatHeader } from '../../components/ChatHeader';
@@ -30,6 +31,7 @@ export default function NewChatScreen() {
   const sessionCreatedRef = useRef(false);
   const { messages, streaming, error, sendMessage } = useChatStream(sessionId);
   const listRef = useRef<FlatList>(null);
+  const queryClient = useQueryClient();
 
   useEffect(() => {
     if (messages.length > 0) {
@@ -48,6 +50,8 @@ export default function NewChatScreen() {
       }
     }
     sendMessage(text);
+    // Refresh sidebar history after first message so new session appears
+    queryClient.invalidateQueries({ queryKey: ['sessions'] });
   };
 
   const showEmpty = messages.length === 0;

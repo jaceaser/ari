@@ -56,6 +56,7 @@ export function SidebarOverlay() {
     queryKey: ['sessions'],
     queryFn: listSessions,
     enabled: isOpen,
+    staleTime: 0, // Always re-fetch when sidebar opens
   });
 
   const sections = useMemo(() => groupSessions(sessions), [sessions]);

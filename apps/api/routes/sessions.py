@@ -435,6 +435,16 @@ async def send_message(session_id: str):
     # Persist user message (text only — images are referenced by URL)
     await cosmos.create_message(user_id, session_id, "user", content)
 
+    # Auto-generate title from first message if session has none
+    if not session.get("title"):
+        raw = content.strip().replace("\n", " ")
+        auto_title = raw[:60].rsplit(" ", 1)[0] if len(raw) > 60 else raw
+        try:
+            session["title"] = auto_title
+            await cosmos.update_session(user_id, session)
+        except Exception:
+            pass  # Non-fatal — title stays blank
+
     # Build context: bounded window of recent messages for LLM
     recent = await cosmos.get_recent_messages(user_id, session_id, limit=40)
     context_messages = [
