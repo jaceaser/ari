@@ -10,11 +10,9 @@ type Props = {
 };
 
 export function ChatBubble({ role, text, streaming }: Props) {
-  const isUser = role === 'user';
-
-  if (isUser) {
+  if (role === 'user') {
     return (
-      <View style={[styles.row, styles.userRow]}>
+      <View style={styles.userRow}>
         <View style={styles.userBubble}>
           <Text style={styles.userText}>{text}</Text>
         </View>
@@ -23,63 +21,113 @@ export function ChatBubble({ role, text, streaming }: Props) {
   }
 
   return (
-    <View style={[styles.row, styles.assistantRow]}>
-      <View style={styles.assistantBubble}>
-        <Markdown style={markdownStyles}>{text || (streaming ? '▍' : '')}</Markdown>
+    <View style={styles.assistantRow}>
+      {/* ARI avatar */}
+      <View style={styles.avatar}>
+        <Text style={styles.avatarText}>A</Text>
+      </View>
+      <View style={styles.assistantContent}>
+        <Markdown style={markdownStyles}>
+          {text || (streaming ? '▍' : '')}
+        </Markdown>
       </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  row: {
+  // User message — right-aligned gold pill
+  userRow: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
     paddingHorizontal: 16,
     paddingVertical: 4,
-    flexDirection: 'row',
   },
-  userRow: { justifyContent: 'flex-end' },
-  assistantRow: { justifyContent: 'flex-start' },
   userBubble: {
     backgroundColor: colors.primary,
-    borderRadius: 18,
-    borderBottomRightRadius: 4,
-    paddingHorizontal: 14,
+    borderRadius: 20,
+    borderBottomRightRadius: 5,
+    paddingHorizontal: 16,
     paddingVertical: 10,
-    maxWidth: '80%',
+    maxWidth: '78%',
   },
   userText: {
     color: colors.primaryForeground,
     fontSize: 15,
-    lineHeight: 21,
+    lineHeight: 22,
     fontWeight: '500',
   },
-  assistantBubble: { maxWidth: '92%' },
+
+  // Assistant message — avatar + plain text, no bubble
+  assistantRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    gap: 10,
+  },
+  avatar: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 2,
+    flexShrink: 0,
+  },
+  avatarText: {
+    color: colors.primaryForeground,
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  assistantContent: {
+    flex: 1,
+  },
 });
 
 const markdownStyles = {
   body: {
     fontSize: 15,
-    lineHeight: 22,
+    lineHeight: 23,
     color: colors.foreground,
   },
+  paragraph: {
+    marginTop: 0,
+    marginBottom: 8,
+  },
   strong: { fontWeight: '700' as const },
-  bullet_list: { marginTop: 4, marginBottom: 4 },
-  ordered_list: { marginTop: 4, marginBottom: 4 },
+  em: { fontStyle: 'italic' as const },
+  bullet_list: { marginTop: 4, marginBottom: 8 },
+  ordered_list: { marginTop: 4, marginBottom: 8 },
+  list_item: { marginBottom: 2 },
   code_inline: {
     backgroundColor: colors.muted,
-    borderRadius: 4,
-    paddingHorizontal: 4,
+    borderRadius: 5,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
     fontFamily: 'monospace',
     fontSize: 13,
+    color: colors.foreground,
   },
   fence: {
     backgroundColor: colors.muted,
-    borderRadius: 8,
-    padding: 12,
-    marginVertical: 6,
+    borderRadius: 10,
+    padding: 14,
+    marginVertical: 8,
+    fontFamily: 'monospace',
+    fontSize: 13,
   },
-  link: { color: colors.primary },
-  heading1: { fontSize: 20, fontWeight: '700' as const, marginVertical: 8 },
-  heading2: { fontSize: 17, fontWeight: '700' as const, marginVertical: 6 },
-  heading3: { fontSize: 15, fontWeight: '600' as const, marginVertical: 4 },
+  blockquote: {
+    borderLeftWidth: 3,
+    borderLeftColor: colors.primary,
+    paddingLeft: 12,
+    marginLeft: 0,
+    color: colors.mutedForeground,
+  },
+  link: { color: colors.primary, textDecorationLine: 'underline' as const },
+  heading1: { fontSize: 20, fontWeight: '700' as const, marginTop: 12, marginBottom: 6, color: colors.foreground },
+  heading2: { fontSize: 17, fontWeight: '700' as const, marginTop: 10, marginBottom: 4, color: colors.foreground },
+  heading3: { fontSize: 15, fontWeight: '600' as const, marginTop: 8, marginBottom: 4, color: colors.foreground },
+  hr: { backgroundColor: colors.border, height: 1, marginVertical: 12 },
 };

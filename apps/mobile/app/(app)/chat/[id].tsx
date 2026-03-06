@@ -51,13 +51,13 @@ export default function ChatScreen() {
   return (
     <SafeAreaView style={styles.safe}>
       <View style={styles.header}>
-        <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
-          <Ionicons name="chevron-back" size={24} color={colors.primary} />
+        <TouchableOpacity style={styles.headerBtn} onPress={() => router.back()}>
+          <Ionicons name="chevron-back" size={24} color={colors.foreground} />
         </TouchableOpacity>
         <Text style={styles.headerTitle} numberOfLines={1}>
           {session?.title ?? 'Chat'}
         </Text>
-        <View style={styles.backBtn} />
+        <View style={styles.headerBtn} />
       </View>
 
       <KeyboardAvoidingView
@@ -88,7 +88,7 @@ export default function ChatScreen() {
             contentContainerStyle={styles.list}
           />
         )}
-        {error && <Text style={styles.errorText}>{error}</Text>}
+        {error ? <Text style={styles.errorText}>{error}</Text> : null}
         <ChatInput onSend={sendMessage} disabled={streaming || isLoading} />
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -100,13 +100,14 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   header: {
     height: 52,
-    borderBottomWidth: 1,
+    borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: colors.border,
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 8,
+    paddingHorizontal: 4,
+    backgroundColor: colors.background,
   },
-  backBtn: { width: 44, alignItems: 'center' },
+  headerBtn: { width: 44, alignItems: 'center' },
   headerTitle: {
     flex: 1,
     fontSize: 16,
@@ -114,7 +115,7 @@ const styles = StyleSheet.create({
     color: colors.foreground,
     textAlign: 'center',
   },
-  list: { paddingTop: 16, paddingBottom: 8 },
+  list: { paddingTop: 12, paddingBottom: 8 },
   loading: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   errorText: {
     color: colors.destructive,

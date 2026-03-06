@@ -4,7 +4,6 @@ import {
   TextInput,
   TouchableOpacity,
   StyleSheet,
-  ActivityIndicator,
   Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -17,6 +16,7 @@ type Props = {
 
 export function ChatInput({ onSend, disabled }: Props) {
   const [text, setText] = useState('');
+  const canSend = !!text.trim() && !disabled;
 
   const handleSend = () => {
     const trimmed = text.trim();
@@ -25,34 +25,31 @@ export function ChatInput({ onSend, disabled }: Props) {
     setText('');
   };
 
-  const canSend = !!text.trim() && !disabled;
-
   return (
-    <View style={styles.container}>
-      <View style={styles.inputRow}>
+    <View style={styles.wrapper}>
+      <View style={styles.container}>
         <TextInput
           style={styles.input}
           value={text}
           onChangeText={setText}
-          placeholder="Ask ARI anything..."
+          placeholder="Message ARI"
           placeholderTextColor={colors.mutedForeground}
           multiline
           maxLength={4000}
           editable={!disabled}
-          onSubmitEditing={Platform.OS === 'ios' ? undefined : handleSend}
-          returnKeyType="send"
-          blurOnSubmit={false}
+          returnKeyType="default"
         />
         <TouchableOpacity
-          style={[styles.sendButton, !canSend && styles.sendButtonDisabled]}
+          style={[styles.sendBtn, canSend && styles.sendBtnActive]}
           onPress={handleSend}
           disabled={!canSend}
+          hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
         >
-          {disabled ? (
-            <ActivityIndicator size="small" color={colors.primaryForeground} />
-          ) : (
-            <Ionicons name="arrow-up" size={20} color={colors.primaryForeground} />
-          )}
+          <Ionicons
+            name="arrow-up"
+            size={18}
+            color={canSend ? colors.primaryForeground : colors.mutedForeground}
+          />
         </TouchableOpacity>
       </View>
     </View>
@@ -60,40 +57,48 @@ export function ChatInput({ onSend, disabled }: Props) {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
-    backgroundColor: colors.background,
+  wrapper: {
     paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingTop: 8,
+    paddingBottom: Platform.OS === 'ios' ? 4 : 8,
+    backgroundColor: colors.background,
   },
-  inputRow: {
+  container: {
     flexDirection: 'row',
     alignItems: 'flex-end',
     backgroundColor: colors.muted,
-    borderRadius: 24,
+    borderRadius: 26,
     borderWidth: 1,
     borderColor: colors.border,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
+    paddingLeft: 16,
+    paddingRight: 6,
+    paddingVertical: 6,
+    // shadow
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.06,
+    shadowRadius: 4,
+    elevation: 2,
   },
   input: {
     flex: 1,
     fontSize: 15,
     lineHeight: 21,
     color: colors.foreground,
-    maxHeight: 120,
-    marginRight: 8,
+    maxHeight: 130,
+    paddingVertical: 4,
+    marginRight: 4,
   },
-  sendButton: {
+  sendBtn: {
     width: 34,
     height: 34,
     borderRadius: 17,
-    backgroundColor: colors.primary,
+    backgroundColor: colors.border,
     alignItems: 'center',
     justifyContent: 'center',
+    marginBottom: 1,
   },
-  sendButtonDisabled: {
-    backgroundColor: colors.border,
+  sendBtnActive: {
+    backgroundColor: colors.primary,
   },
 });
