@@ -12,13 +12,16 @@ import {
   SafeAreaView,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import { sendMagicLink } from '../../lib/api';
+import { sendMagicLink, verifyMagicLink } from '../../lib/api';
+import { saveAuth } from '../../lib/auth';
 
 export default function LoginScreen() {
   const router = useRouter();
   const [email, setEmail] = useState('');
   const [loading, setLoading] = useState(false);
   const [sent, setSent] = useState(false);
+  const [token, setToken] = useState('');
+  const [verifying, setVerifying] = useState(false);
 
   const handleSend = async () => {
     const trimmed = email.trim().toLowerCase();
@@ -37,23 +40,71 @@ export default function LoginScreen() {
     }
   };
 
+  const handleVerifyToken = async () => {
+    const t = token.trim();
+    if (!t) return;
+    setVerifying(true);
+    try {
+      const data = await verifyMagicLink(t);
+      await saveAuth(data.token, data.user);
+      router.replace('/(app)');
+    } catch (err: any) {
+      Alert.alert('Invalid token', err?.message ?? 'Token is invalid or expired.');
+    } finally {
+      setVerifying(false);
+    }
+  };
+
   if (sent) {
     return (
       <SafeAreaView style={styles.safe}>
-        <View style={styles.center}>
-          <Text style={styles.emoji}>📬</Text>
-          <Text style={styles.title}>Check your email</Text>
-          <Text style={styles.subtitle}>
-            We sent a sign-in link to{'\n'}
-            <Text style={styles.emailHighlight}>{email}</Text>
-          </Text>
-          <Text style={styles.hint}>
-            Open the link on this device — it will launch ARI automatically.
-          </Text>
-          <TouchableOpacity style={styles.linkButton} onPress={() => setSent(false)}>
-            <Text style={styles.linkText}>Use a different email</Text>
-          </TouchableOpacity>
-        </View>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={styles.kav}
+        >
+          <View style={styles.center}>
+            <Text style={styles.emoji}>📬</Text>
+            <Text style={styles.title}>Check your email</Text>
+            <Text style={styles.subtitle}>
+              We sent a sign-in link to{'\n'}
+              <Text style={styles.emailHighlight}>{email}</Text>
+            </Text>
+
+            <View style={styles.divider}>
+              <View style={styles.dividerLine} />
+              <Text style={styles.dividerText}>or paste your token</Text>
+              <View style={styles.dividerLine} />
+            </View>
+
+            <TextInput
+              style={styles.input}
+              value={token}
+              onChangeText={setToken}
+              placeholder="Paste token from email link"
+              placeholderTextColor="#9ca3af"
+              autoCapitalize="none"
+              autoCorrect={false}
+              returnKeyType="go"
+              onSubmitEditing={handleVerifyToken}
+            />
+
+            <TouchableOpacity
+              style={[styles.button, (!token.trim() || verifying) && styles.buttonDisabled]}
+              onPress={handleVerifyToken}
+              disabled={!token.trim() || verifying}
+            >
+              {verifying ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={styles.buttonText}>Sign in with token</Text>
+              )}
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.linkButton} onPress={() => { setSent(false); setToken(''); }}>
+              <Text style={styles.linkText}>Use a different email</Text>
+            </TouchableOpacity>
+          </View>
+        </KeyboardAvoidingView>
       </SafeAreaView>
     );
   }
@@ -132,19 +183,15 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     marginBottom: 32,
   },
-  emailHighlight: {
-    fontWeight: '600',
-    color: '#111827',
+  emailHighlight: { fontWeight: '600', color: '#111827' },
+  divider: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    width: '100%',
+    marginBottom: 16,
   },
-  hint: {
-    fontSize: 13,
-    color: '#9ca3af',
-    textAlign: 'center',
-    lineHeight: 18,
-    marginTop: -16,
-    marginBottom: 32,
-    paddingHorizontal: 16,
-  },
+  dividerLine: { flex: 1, height: 1, backgroundColor: '#e5e7eb' },
+  dividerText: { marginHorizontal: 12, fontSize: 13, color: '#9ca3af' },
   input: {
     width: '100%',
     height: 52,
