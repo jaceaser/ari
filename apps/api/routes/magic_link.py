@@ -10,7 +10,7 @@ import os
 import secrets
 import uuid
 
-from quart import Blueprint, jsonify, request
+from quart import Blueprint, jsonify, redirect, request
 
 logger = logging.getLogger("api.auth.magic_link")
 
@@ -112,12 +112,17 @@ async def send_magic_link():
         logger.error("Cosmos DB not configured; cannot store magic token")
         return jsonify({"error": "Server configuration error"}), 500
 
-    # Allow mobile apps to specify a custom redirect URI (deep link).
-    # Only ari:// scheme and the configured frontend URL are permitted.
+    # For mobile apps, send an HTTPS redirect link so email clients render it
+    # as a clickable hyperlink (custom ari:// scheme links are stripped by most clients).
+    # The /auth/magic-link/open endpoint 302-redirects to ari://verify?token=...
     redirect_uri = (body.get("redirect_uri") or "").strip()
     frontend_url = _get_frontend_url()
+    api_url = (os.getenv("API_URL") or "https://reilabs-ari-api.azurewebsites.net").rstrip("/")
     if redirect_uri and redirect_uri.startswith("ari://"):
-        link = f"{redirect_uri}?token={token}"
+        # Send HTTPS link that redirects to the deep link
+        import urllib.parse
+        encoded_redirect = urllib.parse.quote(redirect_uri, safe="")
+        link = f"{api_url}/auth/magic-link/open?token={token}&redirect_uri={encoded_redirect}"
     else:
         link = f"{frontend_url}/verify?token={token}"
 
@@ -161,6 +166,32 @@ async def update_email():
     await cosmos.update_user_email(user_id, new_email)
 
     return jsonify({"ok": True, "email": new_email})
+
+
+@magic_link_bp.get("/auth/magic-link/open")
+async def open_magic_link():
+    """Redirect a magic link click to the appropriate deep link or web URL.
+
+    Mobile apps pass redirect_uri=ari://verify so the email contains an https://
+    link (which email clients render correctly). Tapping it hits this endpoint,
+    which issues a 302 to ari://verify?token=... and the OS opens the app.
+    """
+    import urllib.parse
+
+    token = request.args.get("token", "").strip()
+    redirect_uri = request.args.get("redirect_uri", "").strip()
+
+    if not token:
+        frontend_url = _get_frontend_url()
+        return redirect(f"{frontend_url}/verify?error=missing_token")
+
+    if redirect_uri and redirect_uri.startswith("ari://"):
+        target = f"{redirect_uri}?token={token}"
+    else:
+        frontend_url = _get_frontend_url()
+        target = f"{frontend_url}/verify?token={token}"
+
+    return redirect(target, code=302)
 
 
 def _get_client_ip() -> str:
