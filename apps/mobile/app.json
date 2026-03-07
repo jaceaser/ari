@@ -6,7 +6,7 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "scheme": "ari",
-    "userInterfaceStyle": "light",
+    "userInterfaceStyle": "automatic",
     "splash": {
       "image": "./assets/splash.png",
       "resizeMode": "contain",
@@ -15,8 +15,14 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "ai.reilabs.ari",
+      "associatedDomains": [
+        "applinks:reilabs.ai"
+      ],
       "infoPlist": {
-        "LSApplicationQueriesSchemes": ["ari"]
+        "LSApplicationQueriesSchemes": [
+          "ari"
+        ],
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
@@ -34,8 +40,29 @@
               "scheme": "ari"
             }
           ],
-          "category": ["BROWSABLE", "DEFAULT"]
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
+        },
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            {
+              "scheme": "https",
+              "host": "reilabs.ai",
+              "pathPrefix": "/auth/verify"
+            }
+          ],
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
         }
+      ],
+      "permissions": [
+        "android.permission.RECORD_AUDIO"
       ]
     },
     "web": {
@@ -47,6 +74,13 @@
       "expo-router",
       "expo-secure-store",
       [
+        "expo-image-picker",
+        {
+          "photosPermission": "ARI needs access to your photos to attach images to messages.",
+          "cameraPermission": "ARI needs camera access to take photos for your messages."
+        }
+      ],
+      [
         "expo-splash-screen",
         {
           "image": "./assets/splash.png",
@@ -54,15 +88,20 @@
           "resizeMode": "contain",
           "backgroundColor": "#ffffff"
         }
-      ]
+      ],
+      "expo-font"
     ],
     "experiments": {
       "typedRoutes": true
     },
     "extra": {
       "eas": {
-        "projectId": "YOUR_EAS_PROJECT_ID"
+        "projectId": "8b1fee66-b7ac-4040-9a9f-30d2ab47a37f"
+      },
+      "router": {
+        "origin": false
       }
-    }
+    },
+    "owner": "jaceaser"
   }
 }

@@ -16,7 +16,8 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { listSessions, deleteSession, Session } from '../lib/api';
-import { colors } from '../lib/colors';
+import { useColors } from '../lib/theme-context';
+import { ColorTokens } from '../lib/colors';
 import { useSidebar, SIDEBAR_WIDTH } from '../lib/sidebar-context';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -51,12 +52,14 @@ export function SidebarOverlay() {
   const { isOpen, anim, close } = useSidebar();
   const router = useRouter();
   const queryClient = useQueryClient();
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
 
   const { data: sessions = [], isLoading } = useQuery({
     queryKey: ['sessions'],
     queryFn: listSessions,
     enabled: isOpen,
-    staleTime: 0, // Always re-fetch when sidebar opens
+    staleTime: 0,
   });
 
   const sections = useMemo(() => groupSessions(sessions), [sessions]);
@@ -68,7 +71,7 @@ export function SidebarOverlay() {
 
   const backdropOpacity = anim.interpolate({
     inputRange: [0, 1],
-    outputRange: [0, 0.45],
+    outputRange: [0, 0.6],
   });
 
   const handleDelete = (session: Session) => {
@@ -85,26 +88,14 @@ export function SidebarOverlay() {
     ]);
   };
 
-  const handleNewChat = () => {
-    close();
-    router.push('/(app)');
-  };
-
-  const handleOpenChat = (id: string) => {
-    close();
-    router.push(`/(app)/chat/${id}`);
-  };
-
-  const handleSettings = () => {
-    close();
-    router.push('/(app)/settings');
-  };
+  const handleNewChat = () => { close(); router.push('/(app)'); };
+  const handleOpenChat = (id: string) => { close(); router.push(`/(app)/chat/${id}`); };
+  const handleSettings = () => { close(); router.push('/(app)/settings'); };
 
   if (!isOpen) return null;
 
   return (
     <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
-      {/* Backdrop */}
       <Animated.View
         style={[styles.backdrop, { opacity: backdropOpacity }]}
         pointerEvents={isOpen ? 'auto' : 'none'}
@@ -112,10 +103,8 @@ export function SidebarOverlay() {
         <Pressable style={StyleSheet.absoluteFill} onPress={close} />
       </Animated.View>
 
-      {/* Sidebar panel */}
       <Animated.View style={[styles.panel, { transform: [{ translateX }] }]}>
         <SafeAreaView style={styles.safeArea}>
-          {/* Header */}
           <View style={styles.header}>
             <View style={styles.logoRow}>
               <View style={styles.logoIcon}>
@@ -128,7 +117,6 @@ export function SidebarOverlay() {
             </TouchableOpacity>
           </View>
 
-          {/* History list */}
           {isLoading ? (
             <View style={styles.loadingCenter}>
               <ActivityIndicator color={colors.primary} />
@@ -165,7 +153,6 @@ export function SidebarOverlay() {
             />
           )}
 
-          {/* Footer */}
           <View style={styles.footer}>
             <TouchableOpacity style={styles.footerRow} onPress={handleSettings}>
               <Ionicons name="person-circle-outline" size={22} color={colors.foreground} />
@@ -178,7 +165,7 @@ export function SidebarOverlay() {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (c: ColorTokens) => StyleSheet.create({
   backdrop: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: '#000',
@@ -189,17 +176,16 @@ const styles = StyleSheet.create({
     left: 0,
     bottom: 0,
     width: SIDEBAR_WIDTH,
-    backgroundColor: colors.sidebarBg,
+    backgroundColor: c.sidebarBg,
     borderRightWidth: StyleSheet.hairlineWidth,
-    borderRightColor: colors.border,
+    borderRightColor: c.border,
     shadowColor: '#000',
     shadowOffset: { width: 4, height: 0 },
-    shadowOpacity: 0.12,
+    shadowOpacity: 0.2,
     shadowRadius: 12,
     elevation: 16,
   },
   safeArea: { flex: 1 },
-
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -208,26 +194,25 @@ const styles = StyleSheet.create({
     paddingTop: 8,
     paddingBottom: 12,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.border,
+    borderBottomColor: c.border,
   },
   logoRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   logoIcon: {
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: colors.primary,
+    backgroundColor: c.primary,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  logoIconText: { fontSize: 15, fontWeight: '800', color: colors.primaryForeground },
-  logoLabel: { fontSize: 17, fontWeight: '700', color: colors.foreground },
+  logoIconText: { fontSize: 15, fontWeight: '800', color: c.primaryForeground },
+  logoLabel: { fontSize: 17, fontWeight: '700', color: c.foreground },
   newChatBtn: { padding: 4 },
-
   list: { flex: 1 },
   sectionTitle: {
     fontSize: 11,
     fontWeight: '600',
-    color: colors.mutedForeground,
+    color: c.mutedForeground,
     textTransform: 'uppercase',
     letterSpacing: 0.6,
     paddingHorizontal: 16,
@@ -241,22 +226,17 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     gap: 8,
   },
-  sessionTitle: {
-    flex: 1,
-    fontSize: 14,
-    color: colors.foreground,
-  },
+  sessionTitle: { flex: 1, fontSize: 14, color: c.foreground },
   emptyText: {
     fontSize: 14,
-    color: colors.mutedForeground,
+    color: c.mutedForeground,
     textAlign: 'center',
     marginTop: 32,
   },
   loadingCenter: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-
   footer: {
     borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.border,
+    borderTopColor: c.border,
     paddingHorizontal: 16,
     paddingVertical: 12,
   },
@@ -266,5 +246,5 @@ const styles = StyleSheet.create({
     gap: 12,
     paddingVertical: 8,
   },
-  footerLabel: { fontSize: 15, color: colors.foreground },
+  footerLabel: { fontSize: 15, color: c.foreground },
 });

@@ -1,33 +1,82 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   View,
   TextInput,
   TouchableOpacity,
   StyleSheet,
   Platform,
+  ScrollView,
+  Image,
+  Text,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { colors } from '../lib/colors';
+import { Attachment } from '../lib/api';
+import { AttachmentButton } from './AttachmentButton';
+import { useColors } from '../lib/theme-context';
+import { ColorTokens } from '../lib/colors';
 
 type Props = {
-  onSend: (text: string) => void;
+  onSend: (text: string, attachments: Attachment[]) => void;
   disabled?: boolean;
 };
 
 export function ChatInput({ onSend, disabled }: Props) {
   const [text, setText] = useState('');
-  const canSend = !!text.trim() && !disabled;
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+
+  const canSend = (!!text.trim() || attachments.length > 0) && !disabled;
 
   const handleSend = () => {
     const trimmed = text.trim();
-    if (!trimmed || disabled) return;
-    onSend(trimmed);
+    if ((!trimmed && attachments.length === 0) || disabled) return;
+    onSend(trimmed, attachments);
     setText('');
+    setAttachments([]);
+  };
+
+  const handleAttach = (attachment: Attachment) => {
+    setAttachments((prev) => [...prev, attachment]);
+  };
+
+  const removeAttachment = (index: number) => {
+    setAttachments((prev) => prev.filter((_, i) => i !== index));
   };
 
   return (
     <View style={styles.wrapper}>
+      {attachments.length > 0 && (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.thumbRow}
+          contentContainerStyle={styles.thumbContent}
+        >
+          {attachments.map((a, i) => (
+            <View key={i} style={styles.thumb}>
+              {a.isImage ? (
+                <Image source={{ uri: a.uri }} style={styles.thumbImage} />
+              ) : (
+                <View style={styles.thumbDoc}>
+                  <Ionicons name="document-text-outline" size={20} color={colors.primary} />
+                  <Text style={styles.thumbDocName} numberOfLines={1}>{a.filename}</Text>
+                </View>
+              )}
+              <TouchableOpacity
+                style={styles.thumbRemove}
+                onPress={() => removeAttachment(i)}
+                hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
+              >
+                <Ionicons name="close-circle" size={16} color={colors.mutedForeground} />
+              </TouchableOpacity>
+            </View>
+          ))}
+        </ScrollView>
+      )}
+
       <View style={styles.container}>
+        <AttachmentButton onAttach={handleAttach} disabled={disabled} />
         <TextInput
           style={styles.input}
           value={text}
@@ -56,24 +105,47 @@ export function ChatInput({ onSend, disabled }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (c: ColorTokens) => StyleSheet.create({
   wrapper: {
     paddingHorizontal: 12,
     paddingTop: 8,
     paddingBottom: Platform.OS === 'ios' ? 4 : 8,
-    backgroundColor: colors.background,
+    backgroundColor: c.background,
+  },
+  thumbRow: { marginBottom: 8 },
+  thumbContent: { gap: 8, paddingHorizontal: 4 },
+  thumb: { position: 'relative' },
+  thumbImage: { width: 60, height: 60, borderRadius: 8, backgroundColor: c.muted },
+  thumbDoc: {
+    width: 100,
+    height: 60,
+    borderRadius: 8,
+    backgroundColor: c.muted,
+    borderWidth: 1,
+    borderColor: c.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 6,
+    gap: 4,
+  },
+  thumbDocName: { fontSize: 10, color: c.foreground, textAlign: 'center' },
+  thumbRemove: {
+    position: 'absolute',
+    top: -4,
+    right: -4,
+    backgroundColor: c.background,
+    borderRadius: 8,
   },
   container: {
     flexDirection: 'row',
     alignItems: 'flex-end',
-    backgroundColor: colors.muted,
+    backgroundColor: c.muted,
     borderRadius: 26,
     borderWidth: 1,
-    borderColor: colors.border,
-    paddingLeft: 16,
+    borderColor: c.border,
+    paddingLeft: 8,
     paddingRight: 6,
     paddingVertical: 6,
-    // shadow
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.06,
@@ -84,21 +156,22 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 15,
     lineHeight: 21,
-    color: colors.foreground,
+    color: c.foreground,
     maxHeight: 130,
     paddingVertical: 4,
+    marginLeft: 4,
     marginRight: 4,
   },
   sendBtn: {
     width: 34,
     height: 34,
     borderRadius: 17,
-    backgroundColor: colors.border,
+    backgroundColor: c.border,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 1,
   },
   sendBtnActive: {
-    backgroundColor: colors.primary,
+    backgroundColor: c.primary,
   },
 });

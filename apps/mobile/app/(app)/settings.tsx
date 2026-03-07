@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -12,21 +12,21 @@ import {
 import { useRouter } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
 import { Ionicons } from '@expo/vector-icons';
-import { getUser, clearAuth } from '../../lib/auth';
-import { getBillingStatus, createPortalSession } from '../../lib/api';
-import type { AuthUser } from '../../lib/auth';
-import type { BillingStatus } from '../../lib/api';
-import { colors } from '../../lib/colors';
+import { clearAuth } from '../../lib/auth';
+import { getUserProfile, createPortalSession } from '../../lib/api';
+import type { UserProfile } from '../../lib/api';
+import { useColors } from '../../lib/theme-context';
+import { ColorTokens } from '../../lib/colors';
 
 export default function SettingsScreen() {
   const router = useRouter();
-  const [user, setUser] = useState<AuthUser | null>(null);
-  const [billing, setBilling] = useState<BillingStatus | null>(null);
+  const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loadingPortal, setLoadingPortal] = useState(false);
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
 
   useEffect(() => {
-    getUser().then(setUser);
-    getBillingStatus().then(setBilling).catch(() => {});
+    getUserProfile().then(setProfile).catch(() => {});
   }, []);
 
   const handleSignOut = () => {
@@ -55,12 +55,12 @@ export default function SettingsScreen() {
     }
   };
 
-  const tier = billing?.tier ?? 'free';
-  const tierLabel = `ARI ${tier.charAt(0).toUpperCase() + tier.slice(1)}`;
+  const tierRaw = profile?.tier ?? 'free';
+  const tierLabel = `ARI ${tierRaw.charAt(0).toUpperCase() + tierRaw.slice(1)}`;
+  const initial = profile?.email?.[0]?.toUpperCase() ?? '?';
 
   return (
     <SafeAreaView style={styles.safe}>
-      {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity style={styles.headerBtn} onPress={() => router.back()}>
           <Ionicons name="chevron-back" size={24} color={colors.foreground} />
@@ -70,16 +70,13 @@ export default function SettingsScreen() {
       </View>
 
       <ScrollView contentContainerStyle={styles.scroll}>
-        {/* Profile */}
         <View style={styles.profileCard}>
           <View style={styles.avatar}>
-            <Text style={styles.avatarText}>
-              {user?.email?.[0]?.toUpperCase() ?? '?'}
-            </Text>
+            <Text style={styles.avatarText}>{initial}</Text>
           </View>
           <View style={styles.profileInfo}>
             <Text style={styles.profileEmail} numberOfLines={1}>
-              {user?.email ?? '—'}
+              {profile?.email ?? '—'}
             </Text>
             <View style={styles.tierBadge}>
               <Text style={styles.tierText}>{tierLabel}</Text>
@@ -93,6 +90,7 @@ export default function SettingsScreen() {
             icon="card-outline"
             label="Manage subscription"
             onPress={handleManageBilling}
+            colors={colors}
             right={loadingPortal
               ? <ActivityIndicator size="small" color={colors.primary} />
               : <Ionicons name="chevron-forward" size={16} color={colors.border} />
@@ -102,64 +100,97 @@ export default function SettingsScreen() {
 
         <Text style={styles.sectionLabel}>ACCOUNT</Text>
         <View style={styles.card}>
-          <RowItem icon="log-out-outline" label="Sign out" onPress={handleSignOut} danger />
+          <RowItem icon="log-out-outline" label="Sign out" onPress={handleSignOut} colors={colors} danger />
         </View>
       </ScrollView>
     </SafeAreaView>
   );
 }
 
-function RowItem({ icon, label, onPress, right, danger }: {
+function RowItem({ icon, label, onPress, right, danger, colors }: {
   icon: string; label: string; onPress: () => void;
-  right?: React.ReactNode; danger?: boolean;
+  right?: React.ReactNode; danger?: boolean; colors: ColorTokens;
 }) {
   return (
-    <TouchableOpacity style={styles.rowItem} onPress={onPress} activeOpacity={0.6}>
-      <Ionicons name={icon as any} size={20} color={danger ? colors.destructive : colors.mutedForeground} style={styles.rowIcon} />
-      <Text style={[styles.rowLabel, danger && styles.rowDanger]}>{label}</Text>
+    <TouchableOpacity
+      style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 14 }}
+      onPress={onPress}
+      activeOpacity={0.6}
+    >
+      <Ionicons
+        name={icon as any}
+        size={20}
+        color={danger ? colors.destructive : colors.mutedForeground}
+        style={{ marginRight: 12 }}
+      />
+      <Text style={{ flex: 1, fontSize: 15, color: danger ? colors.destructive : colors.foreground }}>
+        {label}
+      </Text>
       {right ?? <Ionicons name="chevron-forward" size={16} color={colors.border} />}
     </TouchableOpacity>
   );
 }
 
-const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: colors.muted },
+const makeStyles = (c: ColorTokens) => StyleSheet.create({
+  safe: { flex: 1, backgroundColor: c.muted },
   header: {
     height: 52,
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 4,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.border,
-    backgroundColor: colors.background,
+    borderBottomColor: c.border,
+    backgroundColor: c.background,
   },
   headerBtn: { width: 44, alignItems: 'center' },
-  headerTitle: { flex: 1, fontSize: 17, fontWeight: '700', color: colors.foreground, textAlign: 'center' },
-  scroll: { padding: 16, gap: 0 },
+  headerTitle: { flex: 1, fontSize: 17, fontWeight: '700', color: c.foreground, textAlign: 'center' },
+  scroll: { padding: 16 },
   profileCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: colors.background,
+    backgroundColor: c.card,
     borderRadius: 16,
     padding: 16,
     marginBottom: 24,
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
+    borderColor: c.border,
     gap: 14,
   },
-  avatar: { width: 52, height: 52, borderRadius: 26, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
-  avatarText: { fontSize: 22, fontWeight: '700', color: colors.primaryForeground },
-  profileInfo: { flex: 1, gap: 6 },
-  profileEmail: { fontSize: 15, fontWeight: '600', color: colors.foreground },
-  tierBadge: { alignSelf: 'flex-start', backgroundColor: colors.primary, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 3 },
-  tierText: { fontSize: 12, fontWeight: '700', color: colors.primaryForeground },
-  sectionLabel: {
-    fontSize: 11, fontWeight: '600', color: colors.mutedForeground,
-    letterSpacing: 0.6, textTransform: 'uppercase', marginBottom: 6, marginTop: 8, paddingHorizontal: 4,
+  avatar: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: c.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  card: { backgroundColor: colors.background, borderRadius: 14, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border, overflow: 'hidden', marginBottom: 16 },
-  rowItem: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 14 },
-  rowIcon: { marginRight: 12 },
-  rowLabel: { flex: 1, fontSize: 15, color: colors.foreground },
-  rowDanger: { color: colors.destructive },
+  avatarText: { fontSize: 22, fontWeight: '700', color: c.primaryForeground },
+  profileInfo: { flex: 1, gap: 6 },
+  profileEmail: { fontSize: 15, fontWeight: '600', color: c.foreground },
+  tierBadge: {
+    alignSelf: 'flex-start',
+    backgroundColor: c.primary,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+  },
+  tierText: { fontSize: 12, fontWeight: '700', color: c.primaryForeground },
+  sectionLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: c.mutedForeground,
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+    marginBottom: 6,
+    marginTop: 8,
+    paddingHorizontal: 4,
+  },
+  card: {
+    backgroundColor: c.card,
+    borderRadius: 14,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: c.border,
+    overflow: 'hidden',
+    marginBottom: 16,
+  },
 });

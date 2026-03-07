@@ -1,0 +1,94 @@
+require File.join(File.dirname(`node --print "require.resolve('expo/package.json')"`), "scripts/autolinking")
+require File.join(File.dirname(`node --print "require.resolve('react-native/package.json')"`), "scripts/react_native_pods")
+
+require 'json'
+podfile_properties = JSON.parse(File.read(File.join(__dir__, 'Podfile.properties.json'))) rescue {}
+
+ENV['RCT_NEW_ARCH_ENABLED'] = podfile_properties['newArchEnabled'] == 'true' ? '1' : '0'
+ENV['EX_DEV_CLIENT_NETWORK_INSPECTOR'] = podfile_properties['EX_DEV_CLIENT_NETWORK_INSPECTOR']
+
+platform :ios, podfile_properties['ios.deploymentTarget'] || '15.1'
+install! 'cocoapods',
+  :deterministic_uuids => false
+
+prepare_react_native_project!
+
+target 'ARI' do
+  use_expo_modules!
+
+  if ENV['EXPO_USE_COMMUNITY_AUTOLINKING'] == '1'
+    config_command = ['node', '-e', "process.argv=['', '', 'config'];require('@react-native-community/cli').run()"];
+  else
+    config_command = [
+      'node',
+      '--no-warnings',
+      '--eval',
+      'require(require.resolve(\'expo-modules-autolinking\', { paths: [require.resolve(\'expo/package.json\')] }))(process.argv.slice(1))',
+      'react-native-config',
+      '--json',
+      '--platform',
+      'ios'
+    ]
+  end
+
+  config = use_native_modules!(config_command)
+
+  use_frameworks! :linkage => podfile_properties['ios.useFrameworks'].to_sym if podfile_properties['ios.useFrameworks']
+  use_frameworks! :linkage => ENV['USE_FRAMEWORKS'].to_sym if ENV['USE_FRAMEWORKS']
+
+  use_react_native!(
+    :path => config[:reactNativePath],
+    :hermes_enabled => podfile_properties['expo.jsEngine'] == nil || podfile_properties['expo.jsEngine'] == 'hermes',
+    # An absolute path to your application root.
+    :app_path => "#{Pod::Config.instance.installation_root}/..",
+    :privacy_file_aggregation_enabled => podfile_properties['apple.privacyManifestAggregationEnabled'] != 'false',
+  )
+
+  post_install do |installer|
+    react_native_post_install(
+      installer,
+      config[:reactNativePath],
+      :mac_catalyst_enabled => false,
+      :ccache_enabled => podfile_properties['apple.ccacheEnabled'] == 'true',
+    )
+
+    # Fix for Xcode 26+ beta: many pods use an older React Native cross-compiler
+    # (x86_64-apple-darwin13.4.0-clang) that doesn't understand iOS 26.2 SDK's
+    # module-based system headers (_DarwinFoundation2, etc.) or the explicit-modules
+    # build system. Disable the two conflicting flags globally.
+    installer.pods_project.targets.each do |target|
+      target.build_configurations.each do |config|
+        config.build_settings['COMPILER_INDEX_STORE_ENABLE'] = 'NO'
+        config.build_settings['CLANG_ENABLE_EXPLICIT_MODULES'] = 'NO'
+      end
+    end
+
+    # glog, fmt, Yoga: pure C++ pods whose source files #include <stdint.h> etc.
+    # The bundled RN cross-compiler can't handle iOS 26.2's module-based stdint;
+    # switch these pods to Xcode's native clang which fully supports the iOS 26.2 SDK.
+    ['glog', 'fmt', 'Yoga'].each do |pod_name|
+      pod_target = installer.pods_project.targets.find { |t| t.name == pod_name }
+      next unless pod_target
+      pod_target.build_configurations.each do |config|
+        config.build_settings['CLANG_CXX_LANGUAGE_STANDARD'] = 'gnu++17'
+        # Use Xcode's own clang instead of the React Native bundled cross-compiler.
+        # DT_TOOLCHAIN_DIR points to the active toolchain (e.g. XcodeDefault.xctoolchain).
+        config.build_settings['CC']       = '$(DT_TOOLCHAIN_DIR)/usr/bin/clang'
+        config.build_settings['CXX']      = '$(DT_TOOLCHAIN_DIR)/usr/bin/clang++'
+        config.build_settings['LD']       = '$(DT_TOOLCHAIN_DIR)/usr/bin/clang'
+        config.build_settings['LDPLUSPLUS'] = '$(DT_TOOLCHAIN_DIR)/usr/bin/clang++'
+      end
+    end
+
+    # This is necessary for Xcode 14, because it signs resource bundles by default
+    # when building for devices.
+    installer.target_installation_results.pod_target_installation_results
+      .each do |pod_name, target_installation_result|
+      target_installation_result.resource_bundle_targets.each do |resource_bundle_target|
+        resource_bundle_target.build_configurations.each do |config|
+          config.build_settings['CODE_SIGNING_ALLOWED'] = 'NO'
+        end
+      end
+    end
+  end
+end

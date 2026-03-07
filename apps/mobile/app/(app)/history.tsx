@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { useColors } from '../../lib/theme-context';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { listSessions, deleteSession, Session } from '../../lib/api';
 import { colors } from '../../lib/colors';
@@ -46,8 +47,9 @@ function groupSessions(sessions: Session[]): Section[] {
 export default function HistoryScreen() {
   const router = useRouter();
   const queryClient = useQueryClient();
+  const colors = useColors();
 
-  const { data: sessions = [], isLoading, refetch } = useQuery({
+  const { data: sessions = [], isLoading, isError, refetch } = useQuery({
     queryKey: ['sessions'],
     queryFn: listSessions,
   });
@@ -73,6 +75,29 @@ export default function HistoryScreen() {
       <SafeAreaView style={styles.safe}>
         <View style={styles.center}>
           <ActivityIndicator size="large" color={colors.primary} />
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (isError) {
+    return (
+      <SafeAreaView style={styles.safe}>
+        <View style={styles.header}>
+          <Text style={styles.headerTitle}>History</Text>
+        </View>
+        <View style={styles.center}>
+          <Ionicons name="cloud-offline-outline" size={48} color={colors.border} />
+          <Text style={[styles.emptyText, { marginTop: 12 }]}>Couldn't load history</Text>
+          <Text style={styles.emptyHint}>Check your connection and try again</Text>
+          <TouchableOpacity
+            style={[styles.retryBtn, { borderColor: colors.primary }]}
+            onPress={() => refetch()}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="refresh" size={15} color={colors.primary} style={{ marginRight: 6 }} />
+            <Text style={[styles.retryText, { color: colors.primary }]}>Try again</Text>
+          </TouchableOpacity>
         </View>
       </SafeAreaView>
     );
@@ -182,4 +207,14 @@ const styles = StyleSheet.create({
   emptyText: { fontSize: 17, fontWeight: '600', color: colors.foreground, marginTop: 8 },
   emptyHint: { fontSize: 14, color: colors.mutedForeground },
   emptyContainer: { flex: 1 },
+  retryBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 20,
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 10,
+    borderWidth: 1.5,
+  },
+  retryText: { fontSize: 15, fontWeight: '600' },
 });

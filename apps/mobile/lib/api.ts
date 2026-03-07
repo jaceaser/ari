@@ -50,8 +50,15 @@ export type Session = {
 };
 
 export async function listSessions(): Promise<Session[]> {
-  const data = await apiFetch<{ sessions: Session[] }>('/sessions');
-  return data.sessions ?? [];
+  // Backend returns a plain array; handle both array and {sessions:[]} shapes.
+  const data = await apiFetch<unknown>('/sessions');
+  const arr: any[] = Array.isArray(data) ? data : ((data as any)?.sessions ?? []);
+  return arr.map((s: any) => ({
+    id: s.id,
+    title: s.title ?? '',
+    createdAt: s.createdAt ?? (s.created_at ? new Date(s.created_at).getTime() : 0),
+    updatedAt: s.updatedAt ?? (s.updated_at ? new Date(s.updated_at).getTime() : undefined),
+  }));
 }
 
 export async function createSession(id: string): Promise<Session> {
@@ -62,7 +69,13 @@ export async function createSession(id: string): Promise<Session> {
 }
 
 export async function getSession(id: string): Promise<Session> {
-  return apiFetch(`/sessions/${id}`);
+  const data = await apiFetch<any>(`/sessions/${id}`);
+  return {
+    id: data.id,
+    title: data.title ?? '',
+    createdAt: data.createdAt ?? (data.created_at ? new Date(data.created_at).getTime() : 0),
+    updatedAt: data.updatedAt ?? (data.updated_at ? new Date(data.updated_at).getTime() : undefined),
+  };
 }
 
 export async function deleteSession(id: string): Promise<void> {
@@ -81,11 +94,68 @@ export async function getMessages(sessionId: string): Promise<Message[]> {
   return Array.isArray(data) ? data : [];
 }
 
+// ─── Attachments ─────────────────────────────────────────────────────────────
+
+export type Attachment = {
+  uri: string;
+  mimeType: string;
+  filename: string;
+  isImage: boolean;
+};
+
+export type UploadedFile = {
+  url: string;
+  pathname: string;
+  contentType: string;
+};
+
+export function uploadFile(
+  fileUri: string,
+  mimeType: string,
+  filename: string,
+): Promise<UploadedFile> {
+  return getToken().then((token) => {
+    return new Promise<UploadedFile>((resolve, reject) => {
+      const formData = new FormData();
+      // React Native FormData accepts {uri, type, name} for files
+      formData.append('file', { uri: fileUri, type: mimeType, name: filename } as any);
+
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', `${API_BASE_URL}/documents/upload`, true);
+      if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          try {
+            resolve(JSON.parse(xhr.responseText) as UploadedFile);
+          } catch {
+            reject(new Error('Invalid upload response'));
+          }
+        } else {
+          let msg = `Upload failed (${xhr.status})`;
+          try {
+            const b = JSON.parse(xhr.responseText) as { detail?: string };
+            if (b.detail) msg = b.detail;
+          } catch { /* ignore */ }
+          reject(new Error(msg));
+        }
+      };
+      xhr.onerror = () => reject(new Error('Network error during upload'));
+      xhr.ontimeout = () => reject(new Error('Upload timed out'));
+      xhr.timeout = 60000;
+
+      xhr.send(formData);
+    });
+  });
+}
+
 // ─── Streaming ───────────────────────────────────────────────────────────────
 
 export function streamMessage(
   sessionId: string,
   content: string,
+  images: string[] | undefined,
+  documents: Array<{ url: string; mediaType: string }> | undefined,
   onChunk: (text: string) => void,
   onDone: () => void,
   onError: (err: Error) => void,
@@ -156,9 +226,23 @@ export function streamMessage(
       xhr.ontimeout = () => settle(() => onError(new Error('Request timed out')));
       xhr.timeout = 120000; // 2 min timeout
 
-      xhr.send(JSON.stringify({ content }));
+      const body: Record<string, unknown> = { content };
+      if (images?.length) body.images = images;
+      if (documents?.length) body.documents = documents;
+      xhr.send(JSON.stringify(body));
     });
   });
+}
+
+// ─── User profile ────────────────────────────────────────────────────────────
+
+export type UserProfile = {
+  email: string;
+  tier: string;
+};
+
+export async function getUserProfile(): Promise<UserProfile> {
+  return apiFetch('/billing/me');
 }
 
 // ─── Billing ─────────────────────────────────────────────────────────────────

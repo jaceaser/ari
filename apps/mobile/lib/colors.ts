@@ -2,35 +2,50 @@
  * ARI design tokens — mirrors apps/web/app/globals.css
  * Primary brand: gold hsl(41 92% 67%) = #F7C35D
  */
-export const colors = {
-  // Brand
-  primary:            '#F7C35D', // hsl(41 92% 67%) — ARI gold
-  primaryForeground:  '#1A1A27', // hsl(240 10% 10%)
 
-  // Backgrounds
+const base = {
+  primary:           '#F7C35D', // ARI gold — same in both modes
+  primaryForeground: '#1A1A1A',
+  destructive:       '#EF4444',
+  ring:              '#F7C35D',
+} as const;
+
+export const lightColors = {
+  ...base,
   background:         '#FFFFFF',
   card:               '#FFFFFF',
-  sidebarBg:          '#FAFAFA', // hsl(0 0% 98%)
-
-  // Text
-  foreground:         '#09090F', // hsl(240 10% 3.9%)
-  mutedForeground:    '#737382', // hsl(240 3.8% 46.1%)
-
-  // Surfaces
-  muted:              '#F4F4F6', // hsl(240 4.8% 95.9%)
+  sidebarBg:          '#FAFAFA',
+  foreground:         '#09090F',
+  mutedForeground:    '#737382',
+  muted:              '#F4F4F6',
   secondary:          '#F4F4F6',
-
-  // Borders
-  border:             '#E4E4EA', // hsl(240 5.9% 90%)
+  border:             '#E4E4EA',
   input:              '#E4E4EA',
-
-  // States
-  destructive:        '#EF4444', // hsl(0 84.2% 60.2%)
-  ring:               '#F7C35D',
-
-  // User bubble (keep contrast on gold background)
   userBubble:         '#F7C35D',
-  userBubbleText:     '#1A1A27',
+  userBubbleText:     '#1A1A1A',
   assistantBubble:    '#F4F4F6',
   assistantBubbleText:'#09090F',
 } as const;
+
+// Dark mode — matches apps/web/app/globals.css .dark tokens
+export const darkColors = {
+  ...base,
+  background:         '#0D0D0D',
+  card:               '#161616',
+  sidebarBg:          '#0A0A0A',
+  foreground:         '#FAFAFA',
+  mutedForeground:    '#8C8C8C',
+  muted:              '#1F1F1F',
+  secondary:          '#1F1F1F',
+  border:             '#262626',
+  input:              '#262626',
+  userBubble:         '#F7C35D',
+  userBubbleText:     '#1A1A1A',
+  assistantBubble:    '#1F1F1F',
+  assistantBubbleText:'#FAFAFA',
+} as const;
+
+export type ColorTokens = typeof lightColors;
+
+// Static light export kept so non-hook usages (StyleSheet outside components) still compile.
+export const colors = lightColors;

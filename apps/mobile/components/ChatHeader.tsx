@@ -1,9 +1,10 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useSidebar } from '../lib/sidebar-context';
-import { colors } from '../lib/colors';
+import { useColors } from '../lib/theme-context';
+import { ColorTokens } from '../lib/colors';
 
 type Props = {
   title?: string;
@@ -13,33 +14,28 @@ type Props = {
 export function ChatHeader({ title = 'ARI', showBack = false }: Props) {
   const { open } = useSidebar();
   const router = useRouter();
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
 
   return (
     <View style={styles.header}>
-      {/* Left: hamburger or back */}
-      <TouchableOpacity
-        style={styles.btn}
-        onPress={showBack ? () => router.back() : open}
-        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-      >
-        <Ionicons
-          name={showBack ? 'chevron-back' : 'reorder-three-outline'}
-          size={showBack ? 24 : 26}
-          color={colors.foreground}
-        />
-      </TouchableOpacity>
-
-      {/* Center: title */}
-      <TouchableOpacity style={styles.titleWrap} activeOpacity={showBack ? 1 : 0.6}>
+      <View style={styles.left}>
+        <TouchableOpacity
+          style={styles.iconBtn}
+          onPress={showBack ? () => router.back() : open}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        >
+          <Ionicons
+            name={showBack ? 'chevron-back' : 'reorder-three-outline'}
+            size={showBack ? 24 : 26}
+            color={colors.foreground}
+          />
+        </TouchableOpacity>
         <Text style={styles.title} numberOfLines={1}>{title}</Text>
-        {!showBack && (
-          <Ionicons name="chevron-forward" size={14} color={colors.mutedForeground} style={{ marginTop: 1 }} />
-        )}
-      </TouchableOpacity>
+      </View>
 
-      {/* Right: compose */}
       <TouchableOpacity
-        style={styles.btn}
+        style={styles.iconBtn}
         onPress={() => router.push('/(app)')}
         hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
       >
@@ -49,32 +45,33 @@ export function ChatHeader({ title = 'ARI', showBack = false }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (c: ColorTokens) => StyleSheet.create({
   header: {
     height: 52,
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: 8,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.border,
-    backgroundColor: colors.background,
+    borderBottomColor: c.border,
+    backgroundColor: c.background,
   },
-  btn: {
+  left: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    flex: 1,
+  },
+  iconBtn: {
     width: 44,
     height: 44,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  titleWrap: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 3,
-  },
   title: {
+    flex: 1,
     fontSize: 17,
     fontWeight: '700',
-    color: colors.foreground,
+    color: c.foreground,
   },
 });

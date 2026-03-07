@@ -1,13 +1,25 @@
-import React, { useEffect, useState } from 'react';
-import { View, Text, ActivityIndicator, StyleSheet, SafeAreaView } from 'react-native';
+import React, { useEffect, useMemo, useState } from 'react';
+import {
+  View,
+  Text,
+  ActivityIndicator,
+  StyleSheet,
+  SafeAreaView,
+  TouchableOpacity,
+} from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
 import { verifyMagicLink } from '../../lib/api';
 import { saveAuth } from '../../lib/auth';
+import { useColors } from '../../lib/theme-context';
+import { ColorTokens } from '../../lib/colors';
 
 export default function VerifyScreen() {
   const { token } = useLocalSearchParams<{ token: string }>();
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
+  const colors = useColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
 
   useEffect(() => {
     if (!token) {
@@ -19,18 +31,28 @@ export default function VerifyScreen() {
         await saveAuth(data.token, data.user);
         router.replace('/(app)');
       })
-      .catch((err) => {
-        setError(err?.message ?? 'Verification failed. Please try again.');
+      .catch((err: any) => {
+        const msg: string = err?.message ?? '';
+        if (msg.includes('401') || msg.toLowerCase().includes('expired') || msg.toLowerCase().includes('invalid')) {
+          setError('This link has expired or already been used. Please request a new one.');
+        } else {
+          setError(msg || 'Verification failed. Please try again.');
+        }
       });
-  }, [token]);
+  }, [token]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (error) {
     return (
       <SafeAreaView style={styles.safe}>
         <View style={styles.center}>
-          <Text style={styles.emoji}>❌</Text>
+          <View style={styles.iconCircle}>
+            <Ionicons name="close" size={28} color={colors.destructive} />
+          </View>
           <Text style={styles.title}>Link expired</Text>
           <Text style={styles.subtitle}>{error}</Text>
+          <TouchableOpacity style={styles.button} onPress={() => router.replace('/(auth)')}>
+            <Text style={styles.buttonText}>Back to sign in</Text>
+          </TouchableOpacity>
         </View>
       </SafeAreaView>
     );
@@ -39,18 +61,51 @@ export default function VerifyScreen() {
   return (
     <SafeAreaView style={styles.safe}>
       <View style={styles.center}>
-        <ActivityIndicator size="large" color="#1a56db" />
+        <View style={styles.logoCircle}>
+          <Text style={styles.logoText}>A</Text>
+        </View>
+        <ActivityIndicator size="large" color={colors.primary} style={{ marginBottom: 16 }} />
         <Text style={styles.label}>Signing you in…</Text>
       </View>
     </SafeAreaView>
   );
 }
 
-const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: '#fff' },
+const makeStyles = (c: ColorTokens) => StyleSheet.create({
+  safe: { flex: 1, backgroundColor: c.background },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32 },
-  emoji: { fontSize: 48, marginBottom: 16 },
-  title: { fontSize: 22, fontWeight: '700', color: '#111827', marginBottom: 8 },
-  subtitle: { fontSize: 15, color: '#6b7280', textAlign: 'center', lineHeight: 22 },
-  label: { marginTop: 16, fontSize: 15, color: '#6b7280' },
+  logoCircle: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: c.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 32,
+    shadowColor: c.primary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 12,
+    elevation: 6,
+  },
+  logoText: { fontSize: 32, fontWeight: '800', color: c.primaryForeground },
+  label: { fontSize: 16, color: c.mutedForeground },
+  iconCircle: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: c.muted,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 20,
+  },
+  title: { fontSize: 22, fontWeight: '700', color: c.foreground, marginBottom: 8, textAlign: 'center' },
+  subtitle: { fontSize: 15, color: c.mutedForeground, textAlign: 'center', lineHeight: 22, marginBottom: 32 },
+  button: {
+    paddingVertical: 14,
+    paddingHorizontal: 32,
+    borderRadius: 12,
+    backgroundColor: c.primary,
+  },
+  buttonText: { color: c.primaryForeground, fontSize: 16, fontWeight: '700' },
 });

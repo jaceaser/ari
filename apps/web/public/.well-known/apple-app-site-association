@@ -1,0 +1,11 @@
+{
+  "applinks": {
+    "apps": [],
+    "details": [
+      {
+        "appID": "XXXXXXXXXX.ai.reilabs.ari",
+        "paths": ["/auth/verify*"]
+      }
+    ]
+  }
+}
