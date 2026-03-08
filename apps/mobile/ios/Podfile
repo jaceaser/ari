@@ -52,31 +52,108 @@ target 'ARI' do
       :ccache_enabled => podfile_properties['apple.ccacheEnabled'] == 'true',
     )
 
-    # Fix for Xcode 26+ beta: many pods use an older React Native cross-compiler
-    # (x86_64-apple-darwin13.4.0-clang) that doesn't understand iOS 26.2 SDK's
-    # module-based system headers (_DarwinFoundation2, etc.) or the explicit-modules
-    # build system. Disable the two conflicting flags globally.
+    # ── Xcode 26.2 / iOS 26.2 SDK Compatibility ──────────────────────────────
+    # iOS 26.2 SDK uses "module-only" headers — they have no textual fallback,
+    # so every #include must go through the clang module system. The React Native
+    # build pipeline injects an old cross-compiler (clang-9/14) for several pods;
+    # that compiler can't build iOS 26.2 modules (CoreFoundation, os_object, etc.)
+    # and doesn't recognise new build flags like -index-store-path.
+    #
+    # Fix: override CC/CXX to Xcode's own native clang for every pod AND the main
+    # host project. Native clang fully understands iOS 26.2 modules.
+
+    # Patch the main ARI.xcodeproj (host project) — post_install only touches
+    # Pods.xcodeproj by default, but main.m / ARI_vers.c also use clang-9 via
+    # inherited xcconfigs and get -index-store-path passed to them.
+    host_project_path = File.join(installer.sandbox.root, '..', 'ARI.xcodeproj')
+    if File.exist?(host_project_path)
+      host_project = Xcodeproj::Project.open(host_project_path)
+      host_project.targets.each do |target|
+        target.build_configurations.each do |config|
+          config.build_settings['COMPILER_INDEX_STORE_ENABLE'] = 'NO'
+          config.build_settings['CLANG_ENABLE_EXPLICIT_MODULES'] = 'NO'
+          config.build_settings['CC']  = '$(DT_TOOLCHAIN_DIR)/usr/bin/clang'
+          config.build_settings['CXX'] = '$(DT_TOOLCHAIN_DIR)/usr/bin/clang++'
+          config.build_settings['LD']  = '$(DT_TOOLCHAIN_DIR)/usr/bin/clang'
+          config.build_settings['LDPLUSPLUS'] = '$(DT_TOOLCHAIN_DIR)/usr/bin/clang++'
+        end
+      end
+      host_project.save
+    end
+
     installer.pods_project.targets.each do |target|
       target.build_configurations.each do |config|
         config.build_settings['COMPILER_INDEX_STORE_ENABLE'] = 'NO'
+        # Disabling explicit modules prevents Xcode 26 from passing -index-store-path
+        # to old compilers invoked from Run Script phases.
         config.build_settings['CLANG_ENABLE_EXPLICIT_MODULES'] = 'NO'
+        config.build_settings['CC']  = '$(DT_TOOLCHAIN_DIR)/usr/bin/clang'
+        config.build_settings['CXX'] = '$(DT_TOOLCHAIN_DIR)/usr/bin/clang++'
+        config.build_settings['LD']  = '$(DT_TOOLCHAIN_DIR)/usr/bin/clang'
+        config.build_settings['LDPLUSPLUS'] = '$(DT_TOOLCHAIN_DIR)/usr/bin/clang++'
       end
     end
 
-    # glog, fmt, Yoga: pure C++ pods whose source files #include <stdint.h> etc.
-    # The bundled RN cross-compiler can't handle iOS 26.2's module-based stdint;
-    # switch these pods to Xcode's native clang which fully supports the iOS 26.2 SDK.
+    # glog, fmt, Yoga: C++ pods that need explicit C++ standard.
     ['glog', 'fmt', 'Yoga'].each do |pod_name|
       pod_target = installer.pods_project.targets.find { |t| t.name == pod_name }
       next unless pod_target
       pod_target.build_configurations.each do |config|
         config.build_settings['CLANG_CXX_LANGUAGE_STANDARD'] = 'gnu++17'
-        # Use Xcode's own clang instead of the React Native bundled cross-compiler.
-        # DT_TOOLCHAIN_DIR points to the active toolchain (e.g. XcodeDefault.xctoolchain).
-        config.build_settings['CC']       = '$(DT_TOOLCHAIN_DIR)/usr/bin/clang'
-        config.build_settings['CXX']      = '$(DT_TOOLCHAIN_DIR)/usr/bin/clang++'
-        config.build_settings['LD']       = '$(DT_TOOLCHAIN_DIR)/usr/bin/clang'
-        config.build_settings['LDPLUSPLUS'] = '$(DT_TOOLCHAIN_DIR)/usr/bin/clang++'
+      end
+    end
+
+    # glog ships with an autoconf template `logging.h` that has @TOKEN@ placeholders.
+    # The pod's `prepare_command` (./configure) should substitute these, but it can
+    # fail on newer Xcode environments. Patch the file directly if still unsubstituted.
+    glog_logging_h = "#{installer.sandbox.root}/glog/src/glog/logging.h"
+    if File.exist?(glog_logging_h) && File.read(glog_logging_h).include?('@ac_cv_have_uint16_t@')
+      puts "Patching glog/src/glog/logging.h (unsubstituted autoconf tokens)..."
+      content = File.read(glog_logging_h)
+      # Integer-type detection: iOS always has C99 stdint (uint16_t, int32_t, etc.)
+      content.gsub!('@ac_cv_have_uint16_t@',  '1')  # use C99 format
+      content.gsub!('@ac_cv_have_u_int16_t@', '0')  # BSD format not needed
+      content.gsub!('@ac_cv_have___uint16@',  '0')  # Windows format not needed
+      # Compiler attribute support (clang always supports these)
+      content.gsub!('@ac_cv___attribute___noinline@',  '__attribute__((noinline))')
+      content.gsub!('@ac_cv___attribute___noreturn@',  '__attribute__((noreturn))')
+      content.gsub!('@ac_cv_have_libgflags@',          '0')
+      content.gsub!('@ac_cv_cxx_using_operator@',      '1')
+      FileUtils.chmod(0644, glog_logging_h)
+      File.write(glog_logging_h, content)
+    end
+
+    # Patch raw_logging.h: @ac_cv___attribute___printf_4_5@ → clang printf format attr
+    glog_raw_h = "#{installer.sandbox.root}/glog/src/glog/raw_logging.h"
+    if File.exist?(glog_raw_h) && File.read(glog_raw_h).include?('@ac_cv___attribute___printf_4_5@')
+      puts "Patching glog/src/glog/raw_logging.h (printf attribute token)..."
+      content = File.read(glog_raw_h)
+      content.gsub!('@ac_cv___attribute___printf_4_5@', '__attribute__((__format__(__printf__, 4, 5)))')
+      FileUtils.chmod(0644, glog_raw_h)
+      File.write(glog_raw_h, content)
+    end
+
+    # Patch stl_logging.h if it also has unsubstituted tokens
+    glog_stl_h = "#{installer.sandbox.root}/glog/src/glog/stl_logging.h"
+    if File.exist?(glog_stl_h) && File.read(glog_stl_h).include?('@ac_cv_')
+      content = File.read(glog_stl_h)
+      content.gsub!('@ac_cv_cxx_using_operator@', '1')
+      FileUtils.chmod(0644, glog_stl_h)
+      File.write(glog_stl_h, content)
+    end
+
+    # config.h may be missing GOOGLE_NAMESPACE macros if the configure step ran
+    # with ac_google_namespace='' (empty string, happens when C++ namespace test
+    # fails on newer toolchains). Append them if not already present.
+    glog_config_h = "#{installer.sandbox.root}/glog/src/config.h"
+    if File.exist?(glog_config_h) && !File.read(glog_config_h).include?('GOOGLE_NAMESPACE')
+      puts "Patching glog/src/config.h (missing GOOGLE_NAMESPACE macros)..."
+      FileUtils.chmod(0644, glog_config_h)
+      File.open(glog_config_h, 'a') do |f|
+        f.puts "\n/* Google namespace macros (patched by Podfile) */"
+        f.puts "#define GOOGLE_NAMESPACE google"
+        f.puts "#define _START_GOOGLE_NAMESPACE_ namespace google {"
+        f.puts "#define _END_GOOGLE_NAMESPACE_ }"
       end
     end
 
