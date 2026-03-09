@@ -12,7 +12,7 @@ import {
 import { useRouter } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
 import { Ionicons } from '@expo/vector-icons';
-import { clearAuth } from '../../lib/auth';
+import { clearAuth, isAuthenticated } from '../../lib/auth';
 import { getUserProfile, createPortalSession } from '../../lib/api';
 import type { UserProfile } from '../../lib/api';
 import { useColors } from '../../lib/theme-context';
@@ -26,8 +26,14 @@ export default function SettingsScreen() {
   const styles = useMemo(() => makeStyles(colors), [colors]);
 
   useEffect(() => {
-    getUserProfile().then(setProfile).catch(() => {});
-  }, []);
+    getUserProfile()
+      .then(setProfile)
+      .catch((err: Error) => {
+        if (err.message.includes('401') || err.message.includes('403')) {
+          clearAuth().then(() => router.replace('/(auth)'));
+        }
+      });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSignOut = () => {
     Alert.alert('Sign out', 'Are you sure you want to sign out?', [
