@@ -52,7 +52,7 @@
 - [x] Offline detection — animated red banner + disabled input when no internet
 
 ## Phase 4 — App Store Distribution
-- [ ] Real app icon (ARI logo) + splash screen
+- [x] Real app icon (ARI logo) + splash screen
 - [ ] EAS account setup (`eas login`, `eas build:configure`)
 - [ ] Development build on device (replaces Expo Go)
 - [ ] TestFlight (iOS internal testing)
@@ -74,6 +74,62 @@
 - [ ] Export chat as PDF
 - [ ] Lead run history screen (view past lead searches)
 - [ ] Offline message queue (send when connection restored)
+
+---
+
+## Immediate Next Steps
+
+### 1. Fix Universal Link placeholder (5 min)
+File: `apps/web/public/.well-known/apple-app-site-association`
+
+Replace `XXXXXXXXXX` with your Apple Team ID:
+- Find it at: https://developer.apple.com → Account → Membership → Team ID
+- Example: `A1B2C3D4E5.ai.reilabs.ari`
+
+### 2. Fix Android App Link placeholder (before Play Store)
+File: `apps/web/public/.well-known/assetlinks.json`
+
+Replace `PLACEHOLDER_REPLACE_WITH_RELEASE_KEYSTORE_SHA256` with your release keystore SHA-256.
+- Run: `keytool -list -v -keystore release.keystore` to get the fingerprint
+- Only needed for production builds (dev builds can use debug keystore)
+
+### 3. Deploy web app (so `.well-known` files go live)
+```bash
+# From apps/web — trigger a redeploy so AASA + assetlinks.json are served
+az acr build -r ariprodacr -t ari-web:latest --build-arg NEXT_PUBLIC_API_URL=https://reilabs-ari-api.azurewebsites.net --file Dockerfile .
+az webapp restart -g rg-ari-prod -n ari-web
+```
+Verify: `curl https://reilabs.ai/.well-known/apple-app-site-association`
+
+### 4. EAS setup + dev build on device
+```bash
+cd apps/mobile
+eas login                          # log in with Expo account (jaceaser)
+eas build:configure                # generates eas.json
+eas build --platform ios --profile development   # ~10 min cloud build
+# Install the resulting .ipa on your iPhone via the Expo Go QR or direct download
+```
+
+### 5. Test deep links end-to-end on device
+Once the dev build is installed and AASA is live:
+1. Send a magic link email to yourself
+2. Tap the link in the email → should open ARI app directly to verify screen
+3. Also test custom scheme: `ari://verify?token=abc123` via Notes → tap link
+
+### 6. TestFlight (iOS internal)
+```bash
+eas build --platform ios --profile preview   # ad-hoc / internal distribution
+# or
+eas submit --platform ios                    # submit to App Store Connect
+```
+Requires: Apple Developer account ($99/yr), app registered in App Store Connect
+
+### 7. Google Play internal track (Android)
+```bash
+eas build --platform android --profile preview
+eas submit --platform android
+```
+Requires: Google Play Console account ($25 one-time), app created in Play Console
 
 ---
 
