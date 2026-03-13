@@ -12,6 +12,9 @@
     },
     "preview": {
       "distribution": "internal",
+      "android": {
+        "buildType": "app-bundle"
+      },
       "env": {
         "EXPO_PUBLIC_API_URL": "https://api.reilabs.ai"
       }
