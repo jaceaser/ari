@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -21,9 +21,14 @@ export default function VerifyScreen() {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
 
+  const redirectToLogin = useCallback(() => {
+    router.replace('/(auth)');
+  }, [router]);
+
   useEffect(() => {
     if (!token) {
-      setError('Missing token. Please request a new magic link.');
+      // Auto-redirect immediately — no token means nothing to verify
+      redirectToLogin();
       return;
     }
     verifyMagicLink(token)
@@ -34,12 +39,19 @@ export default function VerifyScreen() {
       .catch((err: any) => {
         const msg: string = err?.message ?? '';
         if (msg.includes('401') || msg.toLowerCase().includes('expired') || msg.toLowerCase().includes('invalid')) {
-          setError('This link has expired or already been used. Please request a new one.');
+          setError('This link has expired or already been used.');
         } else {
-          setError(msg || 'Verification failed. Please try again.');
+          setError('Verification failed. Please try again.');
         }
       });
   }, [token]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Auto-redirect to login after 3 seconds on error
+  useEffect(() => {
+    if (!error) return;
+    const timer = setTimeout(redirectToLogin, 3000);
+    return () => clearTimeout(timer);
+  }, [error, redirectToLogin]);
 
   if (error) {
     return (
@@ -49,9 +61,9 @@ export default function VerifyScreen() {
             <Ionicons name="close" size={28} color={colors.destructive} />
           </View>
           <Text style={styles.title}>Link expired</Text>
-          <Text style={styles.subtitle}>{error}</Text>
-          <TouchableOpacity style={styles.button} onPress={() => router.replace('/(auth)')}>
-            <Text style={styles.buttonText}>Back to sign in</Text>
+          <Text style={styles.subtitle}>{error}{'\n'}Redirecting you to sign in…</Text>
+          <TouchableOpacity style={styles.button} onPress={redirectToLogin}>
+            <Text style={styles.buttonText}>Sign in now</Text>
           </TouchableOpacity>
         </View>
       </SafeAreaView>

@@ -282,7 +282,7 @@ async def verify_magic_link():
         return jsonify({"error": "Server configuration error"}), 500
 
     now = datetime.datetime.now(datetime.timezone.utc)
-    expiry_hours = int(os.getenv("JWT_EXPIRY_HOURS", "24"))
+    expiry_hours = int(os.getenv("JWT_EXPIRY_HOURS", "2160"))  # default 90 days
     jwt_payload = {
         "sub": user_id,
         "email": email,
