@@ -100,6 +100,7 @@ from routes.frontend_data import frontend_data_bp  # noqa: E402
 from routes.magic_link import magic_link_bp  # noqa: E402
 from routes.stripe_webhook import stripe_webhook_bp  # noqa: E402
 from routes.billing import billing_bp  # noqa: E402
+from routes.demo import demo_bp  # noqa: E402
 
 app.register_blueprint(auth_bp)
 app.register_blueprint(sessions_bp)
@@ -109,6 +110,7 @@ app.register_blueprint(frontend_data_bp)
 app.register_blueprint(magic_link_bp)
 app.register_blueprint(stripe_webhook_bp)
 app.register_blueprint(billing_bp)
+app.register_blueprint(demo_bp)
 
 # ============================================================================
 # Configuration
@@ -134,7 +136,7 @@ AZURE_OPENAI_DEPLOYMENT = os.getenv("AZURE_OPENAI_DEPLOYMENT") or os.getenv(
     "AZURE_OPENAI_MODEL", "gpt-5.2-chat"
 )
 AZURE_OPENAI_API_VERSION = os.getenv("AZURE_OPENAI_API_VERSION", "2024-12-01-preview")
-AZURE_OPENAI_TIMEOUT_SECONDS = float(os.getenv("AZURE_OPENAI_TIMEOUT_SECONDS", "120"))
+AZURE_OPENAI_TIMEOUT_SECONDS = float(os.getenv("AZURE_OPENAI_TIMEOUT_SECONDS", "300"))
 
 # Security
 FORCE_HTTPS = os.getenv("FORCE_HTTPS", "False").lower() == "true"
@@ -152,9 +154,9 @@ MCP_TOOL_MAX_CALLS_PER_ROUND = int(os.getenv("MCP_TOOL_MAX_CALLS_PER_ROUND", "4"
 
 # Context window management
 # GPT-5.2: 400K input context, 128K max output.
-# Budget = 400K - 128K output headroom = 272K usable input.  We use 260K to
-# leave an additional buffer for system prompts injected at call time.
-_CONTEXT_TOKEN_BUDGET = int(os.getenv("CONTEXT_TOKEN_BUDGET", "260000"))
+# Budget = 400K - 128K output headroom = 272K usable input.  We use 300K,
+# leaving ~85K for tool definitions (~15K) + system prompts + headroom.
+_CONTEXT_TOKEN_BUDGET = int(os.getenv("CONTEXT_TOKEN_BUDGET", "300000"))
 # Tool results (Zillow previews, buyer lists) are capped in-place before dropping messages.
 _MAX_TOOL_RESULT_CHARS = int(os.getenv("MAX_TOOL_RESULT_CHARS", "12000"))  # ≈ 3K tokens
 
@@ -539,7 +541,9 @@ async def before_request():
             return redirect(https_url, code=301)
 
     path = request.path
-    if any(path.startswith(prefix) for prefix in _JWT_AUTH_PREFIXES):
+    if path.startswith("/demo"):
+        pass  # No auth — demo is public, secured by signed JWT token inside the route
+    elif any(path.startswith(prefix) for prefix in _JWT_AUTH_PREFIXES):
         # Phase 2 endpoints — JWT required
         jwt_response = await jwt_auth_middleware()
         if jwt_response is not None:
@@ -611,7 +615,7 @@ class ChatCompletionRequest(BaseModel):
     messages: List[ChatMessage]
     stream: bool = Field(default=False)
     temperature: float = Field(default=0.7, ge=0.0, le=2.0)
-    max_tokens: int = Field(default=100000, ge=1)  # GPT-5.2 supports 128K output; 100K leaves buffer for reasoning tokens
+    max_tokens: int = Field(default=128000, ge=1)  # GPT-5.2 supports 128K output tokens
 
 
 # ============================================================================

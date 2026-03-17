@@ -446,7 +446,7 @@ async def send_message(session_id: str):
             pass  # Non-fatal — title stays blank
 
     # Build context: bounded window of recent messages for LLM
-    recent = await cosmos.get_recent_messages(user_id, session_id, limit=40)
+    recent = await cosmos.get_recent_messages(user_id, session_id, limit=60)
     context_messages = [
         {"role": m.get("role", "user"), "content": m.get("content", "")}
         for m in recent
@@ -502,12 +502,15 @@ async def send_message(session_id: str):
 
             completion_messages = _inject_server_system_prompts(completion_messages)
 
+            from app import _truncate_to_token_budget
+            completion_messages = _truncate_to_token_budget(completion_messages)
+
             # Build a minimal request body for _stream_completion_args
             dummy_request = ChatCompletionRequest(
                 model=AZURE_OPENAI_DEPLOYMENT,
                 messages=[],
                 stream=True,
-                max_tokens=100000,
+                max_tokens=128000,
                 temperature=0.3,
             )
 
@@ -524,8 +527,15 @@ async def send_message(session_id: str):
                 tool_call_id = None
                 tool_name = None
                 tool_args_str = ""
+                last_chunk_time = time.time()
 
                 async for chunk in response:
+                    # Send SSE keepalive comment if no text has been forwarded
+                    # for >15 s (prevents Azure App Service idle-connection close).
+                    now = time.time()
+                    if now - last_chunk_time > 15:
+                        yield ": keepalive\n\n"
+                        last_chunk_time = now
                     payload = chunk.model_dump(exclude_none=True)
                     payload.setdefault("id", stream_id)
                     payload.setdefault("object", "chat.completion.chunk")
@@ -559,6 +569,7 @@ async def send_message(session_id: str):
                     )
                     if has_text:
                         yield _sse_json(payload)
+                        last_chunk_time = time.time()
 
                 # If model called generate_document, execute it and loop
                 if tool_name == "generate_document" and tool_call_id:
