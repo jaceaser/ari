@@ -132,9 +132,19 @@ REAL_ESTATE_PROMPTS: list[str] = [
     "What is the difference between a short sale and a foreclosure?",
     "How do I negotiate with motivated sellers to get a below-market price?",
     "What is a novation agreement and when would I use one instead of a standard assignment?",
+    "What is driving down home prices in certain markets right now?",
+    "How do I evaluate a mobile home park as an investment?",
+    "What is seller financing and how do I structure it?",
+    "How do I use a self-directed IRA to invest in real estate?",
+    "What is a land contract and how does it differ from a mortgage?",
+    "How do I find off-market deals without using the MLS?",
+    "What is equity stripping and why should investors be aware of it?",
+    "How do I wholesale a deal if I don't have a buyers list yet?",
+    "What due diligence should I do before closing on a fix-and-flip?",
+    "How do I scale from one rental property to a portfolio of ten?",
 ]
 
-assert len(REAL_ESTATE_PROMPTS) == 20
+assert len(REAL_ESTATE_PROMPTS) == 30
 
 
 # ── Shared mock wiring ────────────────────────────────────────────────────────
@@ -180,7 +190,7 @@ class TestLongConversation:
     # ── Test cases ──
 
     @pytest.mark.asyncio
-    async def test_20_turn_conversation_all_complete(
+    async def test_30_turn_conversation_all_complete(
         self, app_client, auth_headers, mock_cosmos
     ):
         """
@@ -262,7 +272,7 @@ class TestLongConversation:
         ) * 150  # ~3,000 words
 
         history: list[dict] = []
-        for i in range(20):
+        for i in range(30):
             history.append({
                 "id": f"u{i}",
                 "role": "user",
@@ -417,8 +427,8 @@ class TestLongConversation:
                     "createdAt": "2025-01-01T00:00:01+00:00",
                 })
 
-        assert len(call_snapshots) == 20, (
-            f"Expected get_recent_messages called 20 times, got {len(call_snapshots)}"
+        assert len(call_snapshots) == 30, (
+            f"Expected get_recent_messages called 30 times, got {len(call_snapshots)}"
         )
         for i in range(1, len(call_snapshots)):
             assert call_snapshots[i] >= call_snapshots[i - 1], (
