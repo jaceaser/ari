@@ -23,6 +23,22 @@ def _user_email() -> str:
     return getattr(request, "user_email", "")
 
 
+@billing_bp.get("/billing/me")
+async def users_me():
+    """Return lightweight profile: email + tier. Used by mobile settings screen."""
+    user_id = _user_id()
+    if not user_id:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    email = _user_email()
+
+    # Re-use the same cached tier logic as the guardrails middleware
+    from app import _get_user_tier
+    tier = await _get_user_tier(user_id)
+
+    return jsonify({"email": email, "tier": tier or "free"})
+
+
 @billing_bp.get("/billing/status")
 async def billing_status():
     """Return the current user's subscription status."""

@@ -22,3 +22,6 @@ from .magic_link import magic_link_bp  # noqa: F401, E402
 # Stripe + billing
 from .stripe_webhook import stripe_webhook_bp  # noqa: F401, E402
 from .billing import billing_bp  # noqa: F401, E402
+
+# Unauthenticated demo (sales funnel teaser)
+from .demo import demo_bp  # noqa: F401, E402
