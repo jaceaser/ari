@@ -40,7 +40,7 @@ export async function proxy(request: NextRequest) {
     }
 
     // Production: redirect to /login unless already on a public auth page
-    const publicPaths = ["/login", "/register"];
+    const publicPaths = ["/login", "/register", "/try"];
     const isPublicPath =
       publicPaths.includes(pathname) || pathname.startsWith("/verify");
     if (!isPublicPath) {
