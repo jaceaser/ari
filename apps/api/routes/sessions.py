@@ -528,6 +528,7 @@ async def send_message(session_id: str):
                 tool_name = None
                 tool_args_str = ""
                 last_chunk_time = time.time()
+                finish_reason: str | None = None
 
                 async for chunk in response:
                     # Send SSE keepalive comment if no text has been forwarded
@@ -544,6 +545,10 @@ async def send_message(session_id: str):
 
                     for choice in payload.get("choices", []):
                         delta = choice.get("delta", {})
+
+                        # Capture finish_reason from any choice
+                        if choice.get("finish_reason"):
+                            finish_reason = choice["finish_reason"]
 
                         # Accumulate text content
                         if "content" in delta and delta["content"]:
@@ -570,6 +575,32 @@ async def send_message(session_id: str):
                     if has_text:
                         yield _sse_json(payload)
                         last_chunk_time = time.time()
+
+                # Detect token-limit truncation and surface it to the user
+                if finish_reason == "length":
+                    logger.warning(
+                        "Response truncated by token limit in session %s "
+                        "(finish_reason=length, response_chars=%d)",
+                        session_id,
+                        len(full_response_text),
+                    )
+                    notice = (
+                        "\n\n---\n*Response was cut off because it reached the length limit. "
+                        "Try asking a more specific question or breaking your request into smaller parts.*"
+                    )
+                    notice_chunk = {
+                        "id": stream_id,
+                        "object": "chat.completion.chunk",
+                        "created": created,
+                        "model": AZURE_OPENAI_DEPLOYMENT,
+                        "choices": [{
+                            "index": 0,
+                            "delta": {"content": notice},
+                            "finish_reason": None,
+                        }],
+                    }
+                    yield _sse_json(notice_chunk)
+                    full_response_text += notice
 
                 # If model called generate_document, execute it and loop
                 if tool_name == "generate_document" and tool_call_id:

@@ -29,7 +29,7 @@ from _constants import TEST_SESSION_ID
 # ── SSE helpers ─────────────────────────────────────────────────────────────
 
 
-def _parse_sse(raw: bytes) -> tuple[list[str], bool, list[dict]]:
+def _parse_sse(raw: bytes) -> tuple[list[str], bool, list[dict], str | None]:
     """
     Parse a raw SSE response body.
 
@@ -41,10 +41,13 @@ def _parse_sse(raw: bytes) -> tuple[list[str], bool, list[dict]]:
         True when ``[DONE]`` was received.
     errors : list[dict]
         Any ``{"error": ...}`` objects found in the stream.
+    finish_reason : str | None
+        The last non-null ``finish_reason`` seen across all chunks, or None.
     """
     text_parts: list[str] = []
     done = False
     errors: list[dict] = []
+    finish_reason: str | None = None
 
     for line in raw.decode("utf-8", errors="replace").splitlines():
         if not line.startswith("data:"):
@@ -63,8 +66,10 @@ def _parse_sse(raw: bytes) -> tuple[list[str], bool, list[dict]]:
             content = (choice.get("delta") or {}).get("content")
             if content:
                 text_parts.append(content)
+            if choice.get("finish_reason"):
+                finish_reason = choice["finish_reason"]
 
-    return text_parts, done, errors
+    return text_parts, done, errors, finish_reason
 
 
 def _make_stream(text: str = "This is a helpful real estate answer.") -> AsyncIterator:
@@ -214,11 +219,18 @@ class TestLongConversation:
                 )
 
                 raw = await resp.get_data()
-                text_parts, done, errors = _parse_sse(raw)
+                text_parts, done, errors, finish_reason = _parse_sse(raw)
 
                 assert done, f"Turn {turn}: [DONE] not received in SSE stream"
                 assert not errors, f"Turn {turn}: SSE error event(s): {errors}"
                 assert text_parts, f"Turn {turn}: no text content received in stream"
+                # finish_reason is handled server-side; the user-visible signal for
+                # a token-limit cutoff is the truncation notice injected into the text.
+                full_text = "".join(text_parts)
+                assert "length limit" not in full_text.lower(), (
+                    f"Turn {turn}: unexpected truncation notice found — "
+                    "response may have hit the token limit (finish_reason='length')"
+                )
 
                 # Simulate the assistant reply being persisted after the response
                 history.append({
@@ -282,10 +294,87 @@ class TestLongConversation:
                 f"Expected HTTP 200 after truncation, got {resp.status_code}"
             )
             raw = await resp.get_data()
-            _, done, errors = _parse_sse(raw)
+            text_parts, done, errors, _ = _parse_sse(raw)
 
             assert done, "Large-context turn: [DONE] not received"
             assert not errors, f"Large-context turn produced SSE error events: {errors}"
+            full_text = "".join(text_parts)
+            assert "length limit" not in full_text.lower(), (
+                "Large-context turn: truncation notice found — "
+                "response hit the token limit (finish_reason='length')"
+            )
+
+    @pytest.mark.asyncio
+    async def test_finish_reason_length_surfaces_notice(
+        self, app_client, auth_headers, mock_cosmos
+    ):
+        """
+        When Azure OpenAI returns finish_reason='length' (token limit hit),
+        the backend must:
+          - still return HTTP 200 and stream [DONE]
+          - append a user-visible truncation notice to the response
+          - NOT emit a generic SSE error event
+
+        This test replaces the mock stream with one that ends with
+        finish_reason='length' instead of 'stop', simulating what happens
+        when max_completion_tokens is exhausted mid-response.
+        """
+        mock_cosmos.get_recent_messages = AsyncMock(return_value=[])
+
+        async def _length_stream():
+            # Emit some partial text...
+            for word in "Here is a very long answer that got cut off".split():
+                chunk = MagicMock()
+                chunk.model_dump.return_value = {
+                    "id": "chatcmpl-test",
+                    "object": "chat.completion.chunk",
+                    "created": 1_700_000_000,
+                    "model": "gpt-5.2-chat",
+                    "choices": [{"index": 0, "delta": {"content": word + " "}, "finish_reason": None}],
+                }
+                yield chunk
+
+            # ...then stop with finish_reason='length' instead of 'stop'
+            fin = MagicMock()
+            fin.model_dump.return_value = {
+                "id": "chatcmpl-test",
+                "object": "chat.completion.chunk",
+                "created": 1_700_000_000,
+                "model": "gpt-5.2-chat",
+                "choices": [{"index": 0, "delta": {}, "finish_reason": "length"}],
+            }
+            yield fin
+
+        mock_azure = MagicMock()
+        mock_azure.chat.completions.create = AsyncMock(side_effect=lambda *a, **kw: _length_stream())
+
+        with (
+            patch("app.get_azure_client", return_value=mock_azure),
+            patch("app._run_mcp_tool_orchestration", side_effect=_passthrough_orchestration),
+            patch("app._get_user_tier", new=AsyncMock(return_value="elite")),
+        ):
+            resp = await app_client.post(
+                f"/sessions/{TEST_SESSION_ID}/messages",
+                json={"content": "Write me a very long real estate guide"},
+                headers=auth_headers,
+            )
+
+        assert resp.status_code == 200
+        raw = await resp.get_data()
+        text_parts, done, errors, finish_reason = _parse_sse(raw)
+
+        assert done, "finish_reason=length: [DONE] not received"
+        assert not errors, f"finish_reason=length: unexpected SSE error event: {errors}"
+
+        # The partial text content should still be present
+        assert text_parts, "finish_reason=length: no text content in stream"
+
+        # The backend must have appended a truncation notice
+        full_text = "".join(text_parts)
+        assert "cut off" in full_text.lower() or "length limit" in full_text.lower(), (
+            "finish_reason=length: expected a truncation notice in the response, "
+            f"got: {full_text!r}"
+        )
 
     @pytest.mark.asyncio
     async def test_context_history_grows_per_turn(
