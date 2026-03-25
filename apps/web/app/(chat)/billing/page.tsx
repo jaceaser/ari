@@ -32,6 +32,7 @@ export default function BillingPage() {
   const [billing, setBilling] = useState<BillingStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [portalLoading, setPortalLoading] = useState(false);
+  const [portalError, setPortalError] = useState<string | null>(null);
 
   const success = searchParams.get("success");
   const canceled = searchParams.get("canceled");
@@ -46,6 +47,7 @@ export default function BillingPage() {
 
   const handleManageSubscription = async () => {
     setPortalLoading(true);
+    setPortalError(null);
     try {
       const res = await fetch("/api/billing/create-portal", {
         method: "POST",
@@ -53,8 +55,12 @@ export default function BillingPage() {
       const data = await res.json();
       if (data.url) {
         window.location.href = data.url;
+      } else {
+        setPortalError(data.error ?? "Failed to open billing portal. Please try again.");
+        setPortalLoading(false);
       }
     } catch {
+      setPortalError("Failed to open billing portal. Please try again.");
       setPortalLoading(false);
     }
   };
@@ -110,6 +116,9 @@ export default function BillingPage() {
           >
             {portalLoading ? "Redirecting..." : "Manage Subscription"}
           </Button>
+          {portalError && (
+            <p className="text-xs text-red-500">{portalError}</p>
+          )}
           <p className="text-xs text-muted-foreground">
             Change your plan, update payment method, or cancel.
           </p>
