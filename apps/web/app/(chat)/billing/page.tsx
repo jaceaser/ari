@@ -11,7 +11,6 @@ type BillingStatus = {
   tier: string | null;
   status: string | null;
   expires_at: string | null;
-  stripe_customer_id: string | null;
 };
 
 const TIER_LABELS: Record<string, string> = {
@@ -32,9 +31,6 @@ export default function BillingPage() {
   const searchParams = useSearchParams();
   const [billing, setBilling] = useState<BillingStatus | null>(null);
   const [loading, setLoading] = useState(true);
-  const [portalLoading, setPortalLoading] = useState(false);
-  const [portalError, setPortalError] = useState<string | null>(null);
-
   const success = searchParams.get("success");
   const canceled = searchParams.get("canceled");
 
@@ -45,26 +41,6 @@ export default function BillingPage() {
       .catch(() => setBilling(null))
       .finally(() => setLoading(false));
   }, []);
-
-  const handleManageSubscription = async () => {
-    setPortalLoading(true);
-    setPortalError(null);
-    try {
-      const res = await fetch("/api/billing/create-portal", {
-        method: "POST",
-      });
-      const data = await res.json();
-      if (data.url) {
-        window.location.href = data.url;
-      } else {
-        setPortalError(data.error ?? "Failed to open billing portal. Please try again.");
-        setPortalLoading(false);
-      }
-    } catch {
-      setPortalError("Failed to open billing portal. Please try again.");
-      setPortalLoading(false);
-    }
-  };
 
   return (
     <div className="mx-auto flex h-dvh max-w-lg flex-col items-center justify-center gap-6 px-4">
@@ -110,23 +86,14 @@ export default function BillingPage() {
               </span>
             </div>
           )}
-          {billing.stripe_customer_id && (
-            <>
-              <Button
-                disabled={portalLoading}
-                onClick={handleManageSubscription}
-                variant="outline"
-              >
-                {portalLoading ? "Redirecting..." : "Manage Subscription"}
-              </Button>
-              {portalError && (
-                <p className="text-xs text-red-500">{portalError}</p>
-              )}
-              <p className="text-xs text-muted-foreground">
-                Change your plan, update payment method, or cancel.
-              </p>
-            </>
-          )}
+          <Button variant="outline" asChild>
+            <a href="https://billing.stripe.com/p/login/aFa7sK4J91hJ5yVbxs5kk00" target="_blank" rel="noopener noreferrer">
+              Manage Subscription
+            </a>
+          </Button>
+          <p className="text-xs text-muted-foreground">
+            Change your plan, update payment method, or cancel.
+          </p>
         </div>
       ) : (
         <div className="flex w-full flex-col gap-4 rounded-lg border p-6">
