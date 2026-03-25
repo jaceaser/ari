@@ -159,12 +159,14 @@ export function streamMessage(
   onChunk: (text: string) => void,
   onDone: () => void,
   onError: (err: Error) => void,
-): Promise<void> {
+): { promise: Promise<void>; abort: () => void } {
   // Use XMLHttpRequest with onprogress — the only reliable streaming
   // approach in React Native (response.body ReadableStream is flaky).
-  return getToken().then((token) => {
+  let xhrRef: XMLHttpRequest | null = null;
+  const promise = getToken().then((token) => {
     return new Promise<void>((resolve) => {
       const xhr = new XMLHttpRequest();
+      xhrRef = xhr;
       let processed = 0;
       let buffer = '';
       let settled = false;
@@ -232,6 +234,10 @@ export function streamMessage(
       xhr.send(JSON.stringify(body));
     });
   });
+  return {
+    promise,
+    abort: () => { xhrRef?.abort(); },
+  };
 }
 
 // ─── User profile ────────────────────────────────────────────────────────────

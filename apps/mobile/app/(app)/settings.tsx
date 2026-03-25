@@ -4,16 +4,15 @@ import {
   Text,
   TouchableOpacity,
   StyleSheet,
-  SafeAreaView,
   Alert,
-  ActivityIndicator,
   ScrollView,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
 import { Ionicons } from '@expo/vector-icons';
 import { clearAuth, isAuthenticated } from '../../lib/auth';
-import { getUserProfile, createPortalSession } from '../../lib/api';
+import { getUserProfile } from '../../lib/api';
 import type { UserProfile } from '../../lib/api';
 import { useColors } from '../../lib/theme-context';
 import { ColorTokens } from '../../lib/colors';
@@ -21,7 +20,6 @@ import { ColorTokens } from '../../lib/colors';
 export default function SettingsScreen() {
   const router = useRouter();
   const [profile, setProfile] = useState<UserProfile | null>(null);
-  const [loadingPortal, setLoadingPortal] = useState(false);
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
 
@@ -50,15 +48,7 @@ export default function SettingsScreen() {
   };
 
   const handleManageBilling = async () => {
-    setLoadingPortal(true);
-    try {
-      const { url } = await createPortalSession();
-      await WebBrowser.openBrowserAsync(url);
-    } catch {
-      Alert.alert('Error', 'Could not open billing portal. Try again.');
-    } finally {
-      setLoadingPortal(false);
-    }
+    await WebBrowser.openBrowserAsync('https://billing.stripe.com/p/login/aFa7sK4J91hJ5yVbxs5kk00');
   };
 
   const tierRaw = profile?.tier ?? 'free';
@@ -97,10 +87,6 @@ export default function SettingsScreen() {
             label="Manage subscription"
             onPress={handleManageBilling}
             colors={colors}
-            right={loadingPortal
-              ? <ActivityIndicator size="small" color={colors.primary} />
-              : <Ionicons name="chevron-forward" size={16} color={colors.border} />
-            }
           />
         </View>
 

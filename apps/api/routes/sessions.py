@@ -465,9 +465,21 @@ async def send_message(session_id: str):
         # Documents only (no images) — just inject the extracted text
         context_messages[-1]["content"] = effective_content
 
-    # Run MCP orchestration + stream response
-    async def generate():
-        # Lazy imports to avoid circular deps with app.py
+    # Run MCP orchestration + stream response.
+    #
+    # Architecture: generation runs in a detached asyncio Task (_generation_task)
+    # independent of the HTTP connection lifetime. The SSE generator reads from a
+    # queue and forwards chunks to the client. If the client disconnects mid-stream,
+    # the generator exits but the task continues running, accumulates the full
+    # response, and persists it to Cosmos DB on completion.
+    chunk_queue: asyncio.Queue = asyncio.Queue()
+
+    async def _generation_task() -> None:
+        """
+        Runs the full LLM pipeline to completion regardless of client state.
+        Puts SSE-formatted strings into chunk_queue; puts None as the sentinel
+        when finished. Persists the complete assistant message to Cosmos DB.
+        """
         from app import (
             _inject_server_system_prompts,
             _normalize_openai_messages,
@@ -479,6 +491,7 @@ async def send_message(session_id: str):
             get_azure_client,
             AZURE_OPENAI_DEPLOYMENT,
             ChatCompletionRequest,
+            _truncate_to_token_budget,
         )
 
         stream_id = f"chatcmpl-{uuid.uuid4().hex}"
@@ -492,7 +505,6 @@ async def send_message(session_id: str):
             # MCP tool orchestration
             try:
                 completion_messages = await _run_mcp_tool_orchestration(normalized, user_id=user_id)
-                # Collect tool results for lead run detection
                 for msg in completion_messages:
                     if msg.get("role") == "tool":
                         mcp_tool_results.append(msg)
@@ -501,11 +513,8 @@ async def send_message(session_id: str):
                 completion_messages = normalized
 
             completion_messages = _inject_server_system_prompts(completion_messages)
-
-            from app import _truncate_to_token_budget
             completion_messages = _truncate_to_token_budget(completion_messages)
 
-            # Build a minimal request body for _stream_completion_args
             dummy_request = ChatCompletionRequest(
                 model=AZURE_OPENAI_DEPLOYMENT,
                 messages=[],
@@ -531,12 +540,11 @@ async def send_message(session_id: str):
                 finish_reason: str | None = None
 
                 async for chunk in response:
-                    # Send SSE keepalive comment if no text has been forwarded
-                    # for >15 s (prevents Azure App Service idle-connection close).
                     now = time.time()
                     if now - last_chunk_time > 15:
-                        yield ": keepalive\n\n"
+                        chunk_queue.put_nowait(": keepalive\n\n")
                         last_chunk_time = now
+
                     payload = chunk.model_dump(exclude_none=True)
                     payload.setdefault("id", stream_id)
                     payload.setdefault("object", "chat.completion.chunk")
@@ -545,17 +553,11 @@ async def send_message(session_id: str):
 
                     for choice in payload.get("choices", []):
                         delta = choice.get("delta", {})
-
-                        # Capture finish_reason from any choice
                         if choice.get("finish_reason"):
                             finish_reason = choice["finish_reason"]
-
-                        # Accumulate text content
                         if "content" in delta and delta["content"]:
                             round_text += delta["content"]
                             full_response_text += delta["content"]
-
-                        # Accumulate tool call arguments (streamed incrementally)
                         tool_calls = delta.get("tool_calls")
                         if tool_calls:
                             for tc in tool_calls:
@@ -567,13 +569,12 @@ async def send_message(session_id: str):
                                 if fn.get("arguments"):
                                     tool_args_str += fn["arguments"]
 
-                    # Only forward text-content chunks to the client
                     has_text = any(
                         c.get("delta", {}).get("content")
                         for c in payload.get("choices", [])
                     )
                     if has_text:
-                        yield _sse_json(payload)
+                        chunk_queue.put_nowait(_sse_json(payload))
                         last_chunk_time = time.time()
 
                 # Detect token-limit truncation and surface it to the user
@@ -599,7 +600,7 @@ async def send_message(session_id: str):
                             "finish_reason": None,
                         }],
                     }
-                    yield _sse_json(notice_chunk)
+                    chunk_queue.put_nowait(_sse_json(notice_chunk))
                     full_response_text += notice
 
                 # If model called generate_document, execute it and loop
@@ -607,7 +608,6 @@ async def send_message(session_id: str):
                     logger.info("Model called generate_document tool during streaming")
                     tool_args = _parse_tool_arguments(tool_args_str)
                     tool_result = await _handle_generate_document(tool_args)
-
                     completion_messages.append({
                         "role": "assistant",
                         "content": round_text or "",
@@ -645,32 +645,51 @@ async def send_message(session_id: str):
                             "finish_reason": None,
                         }],
                     }
-                    yield _sse_json(extra_chunk)
+                    chunk_queue.put_nowait(_sse_json(extra_chunk))
                     full_response_text += docx_extra
             except Exception:
                 logger.exception("Auto DOCX fallback failed")
 
         except Exception as exc:
             logger.exception("Streaming error in session %s", session_id)
-            yield _sse_json({"error": {"type": "api_error", "message": str(exc)}})
+            chunk_queue.put_nowait(_sse_json({"error": {"type": "api_error", "message": str(exc)}}))
         finally:
-            yield _sse_line("[DONE]")
+            # Signal the SSE generator that generation is complete
+            chunk_queue.put_nowait(None)
 
-            # Persist assistant response + detect lead runs in the background
-            # so the SSE stream closes immediately after [DONE].
-            async def _persist():
-                if full_response_text.strip():
-                    try:
-                        await cosmos.create_message(
-                            user_id, session_id, "assistant", full_response_text.strip()
-                        )
-                    except Exception:
-                        logger.exception("Failed to persist assistant message")
-                await _detect_and_save_lead_runs(
-                    cosmos, user_id, session_id, mcp_tool_results
-                )
+            # Persist the complete response — this always runs, even when the
+            # client disconnected mid-stream, because this is an independent task.
+            if full_response_text.strip():
+                try:
+                    await cosmos.create_message(
+                        user_id, session_id, "assistant", full_response_text.strip()
+                    )
+                except Exception:
+                    logger.exception("Failed to persist assistant message")
+            await _detect_and_save_lead_runs(
+                cosmos, user_id, session_id, mcp_tool_results
+            )
 
-            asyncio.ensure_future(_persist())
+    # Start generation as an independent task — it runs to completion regardless
+    # of whether the HTTP client remains connected.
+    asyncio.ensure_future(_generation_task())
+
+    async def generate():
+        """
+        SSE generator: forwards chunks from chunk_queue to the HTTP client.
+        If the client disconnects (CancelledError / GeneratorExit), this exits
+        cleanly while _generation_task continues running in the background.
+        """
+        try:
+            while True:
+                item = await chunk_queue.get()
+                if item is None:  # sentinel: generation finished
+                    yield _sse_line("[DONE]")
+                    break
+                yield item
+        except (asyncio.CancelledError, GeneratorExit):
+            # Client disconnected — _generation_task continues independently
+            pass
 
     return Response(
         generate(),

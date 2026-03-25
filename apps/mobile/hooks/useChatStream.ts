@@ -1,5 +1,6 @@
-import { useCallback, useRef, useState } from 'react';
-import { streamMessage, uploadFile, Attachment } from '../lib/api';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { AppState } from 'react-native';
+import { streamMessage, uploadFile, getMessages, Attachment } from '../lib/api';
 
 export type ChatMessageItem = {
   id: string;
@@ -42,7 +43,46 @@ export function useChatStream(sessionId: string) {
   const [streaming, setStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const abortRef = useRef(false);
+  const xhrAbortRef = useRef<(() => void) | null>(null);
   const lastInputRef = useRef<{ content: string; attachments: Attachment[] } | null>(null);
+  const streamingRef = useRef(false);
+  const bgDisconnectedRef = useRef(false);
+  const bgFetchPendingRef = useRef(false);
+  const sessionIdRef = useRef(sessionId);
+
+  useEffect(() => { streamingRef.current = streaming; }, [streaming]);
+  useEffect(() => { sessionIdRef.current = sessionId; }, [sessionId]);
+
+  // When app backgrounds during streaming:
+  //   - mark bgDisconnectedRef so the error handler keeps the partial response
+  //   - mark bgFetchPendingRef so we refetch from server on foreground
+  // When app returns to foreground:
+  //   - wait 2s for server to finish saving, then load the complete response
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (nextState) => {
+      if (nextState.match(/inactive|background/) && streamingRef.current) {
+        bgDisconnectedRef.current = true;
+        bgFetchPendingRef.current = true;
+      } else if (nextState === 'active' && bgFetchPendingRef.current) {
+        bgFetchPendingRef.current = false;
+        setStreaming(false);
+        // Give the server ~2s to finish generating and save to Cosmos DB,
+        // then reload messages. Only apply if server has an assistant response.
+        setTimeout(() => {
+          getMessages(sessionIdRef.current)
+            .then((msgs) => {
+              if (!msgs?.length) return;
+              const hasAssistant = msgs.some(
+                (m) => m.role === 'assistant' && m.content?.trim(),
+              );
+              if (hasAssistant) loadMessages(msgs);
+            })
+            .catch(() => { /* silently ignore — user still has partial response */ });
+        }, 2000);
+      }
+    });
+    return () => sub.remove();
+  }, [loadMessages]);
 
   const addUserMessage = useCallback((
     text: string,
@@ -92,25 +132,51 @@ export function useChatStream(sessionId: string) {
         { id: assistantId, role: 'assistant', text: '' },
       ]);
 
-      await streamMessage(
+      // Buffer chunks and flush at most every 32ms so the JS thread isn't
+      // overwhelmed by a setMessages call on every single SSE token.
+      const chunkBuffer = { current: '' };
+      const flushTimer = { current: null as ReturnType<typeof setTimeout> | null };
+
+      const flushBuffer = () => {
+        flushTimer.current = null;
+        const buffered = chunkBuffer.current;
+        if (!buffered || abortRef.current) return;
+        chunkBuffer.current = '';
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === assistantId ? { ...m, text: m.text + buffered } : m,
+          ),
+        );
+      };
+
+      const { promise, abort } = streamMessage(
         sessionId,
         content,
         images.length ? images : undefined,
         documents.length ? documents : undefined,
         (chunk) => {
           if (abortRef.current) return;
-          setMessages((prev) =>
-            prev.map((m) =>
-              m.id === assistantId ? { ...m, text: m.text + chunk } : m,
-            ),
-          );
+          chunkBuffer.current += chunk;
+          if (!flushTimer.current) {
+            flushTimer.current = setTimeout(flushBuffer, 32);
+          }
         },
         () => {
+          // Flush any remaining buffered text before marking done
+          if (flushTimer.current) { clearTimeout(flushTimer.current); }
+          flushBuffer();
+          xhrAbortRef.current = null;
           setStreaming(false);
         },
         (err) => {
-          setError(err.message);
+          xhrAbortRef.current = null;
           setStreaming(false);
+          if (bgDisconnectedRef.current) {
+            // Stream was cut by app backgrounding — keep partial response, no error
+            bgDisconnectedRef.current = false;
+            return;
+          }
+          setError(err.message);
           setMessages((prev) =>
             prev.map((m) =>
               m.id === assistantId
@@ -120,6 +186,8 @@ export function useChatStream(sessionId: string) {
           );
         },
       );
+      xhrAbortRef.current = abort;
+      await promise;
     },
     [sessionId, streaming, addUserMessage],
   );
@@ -154,7 +222,14 @@ export function useChatStream(sessionId: string) {
     [],
   );
 
+  const stopStreaming = useCallback(() => {
+    abortRef.current = true;
+    xhrAbortRef.current?.();
+    xhrAbortRef.current = null;
+    setStreaming(false);
+  }, []);
+
   const clearMessages = useCallback(() => setMessages([]), []);
 
-  return { messages, streaming, error, sendMessage, retry, loadMessages, clearMessages };
+  return { messages, streaming, error, sendMessage, stopStreaming, retry, loadMessages, clearMessages };
 }

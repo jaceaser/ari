@@ -4,6 +4,7 @@ import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import * as Linking from 'expo-linking';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { isAuthenticated } from '../lib/auth';
 import { useRouter } from 'expo-router';
 import { ThemeProvider } from '../lib/theme-context';
@@ -55,8 +56,9 @@ export default function RootLayout() {
       const token = extractVerifyToken(url);
       if (token) {
         router.replace({ pathname: '/(auth)/verify', params: { token } });
-      } else {
-        router.replace(authed ? '/(app)' : '/(auth)');
+      } else if (authed) {
+        // Already on the welcome screen when not authed — no navigation needed
+        router.replace('/(app)');
       }
     });
   }, [ready]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -73,13 +75,15 @@ export default function RootLayout() {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <QueryClientProvider client={queryClient}>
-      <ThemeProvider>
-        <Stack screenOptions={{ headerShown: false }}>
-          <Stack.Screen name="(auth)" />
-          <Stack.Screen name="(app)" />
-        </Stack>
-      </ThemeProvider>
-    </QueryClientProvider>
+    <SafeAreaProvider>
+      <QueryClientProvider client={queryClient}>
+        <ThemeProvider>
+          <Stack screenOptions={{ headerShown: false }}>
+            <Stack.Screen name="(auth)" />
+            <Stack.Screen name="(app)" />
+          </Stack>
+        </ThemeProvider>
+      </QueryClientProvider>
+    </SafeAreaProvider>
   );
 }

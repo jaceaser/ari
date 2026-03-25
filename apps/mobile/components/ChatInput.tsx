@@ -4,11 +4,12 @@ import {
   TextInput,
   TouchableOpacity,
   StyleSheet,
-  Platform,
+  Keyboard,
   ScrollView,
   Image,
   Text,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { Attachment } from '../lib/api';
 import { AttachmentButton } from './AttachmentButton';
@@ -17,16 +18,19 @@ import { ColorTokens } from '../lib/colors';
 
 type Props = {
   onSend: (text: string, attachments: Attachment[]) => void;
+  onStop?: () => void;
   disabled?: boolean;
+  streaming?: boolean;
 };
 
-export function ChatInput({ onSend, disabled }: Props) {
+export function ChatInput({ onSend, onStop, disabled, streaming }: Props) {
   const [text, setText] = useState('');
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const colors = useColors();
+  const insets = useSafeAreaInsets();
   const styles = useMemo(() => makeStyles(colors), [colors]);
 
-  const canSend = (!!text.trim() || attachments.length > 0) && !disabled;
+  const canSend = (!!text.trim() || attachments.length > 0) && !disabled && !streaming;
 
   const handleSend = () => {
     const trimmed = text.trim();
@@ -34,6 +38,7 @@ export function ChatInput({ onSend, disabled }: Props) {
     onSend(trimmed, attachments);
     setText('');
     setAttachments([]);
+    Keyboard.dismiss();
   };
 
   const handleAttach = (attachment: Attachment) => {
@@ -45,7 +50,7 @@ export function ChatInput({ onSend, disabled }: Props) {
   };
 
   return (
-    <View style={styles.wrapper}>
+    <View style={[styles.wrapper, { paddingBottom: Math.max(4, insets.bottom) }]}>
       {attachments.length > 0 && (
         <ScrollView
           horizontal
@@ -88,18 +93,28 @@ export function ChatInput({ onSend, disabled }: Props) {
           editable={!disabled}
           returnKeyType="default"
         />
-        <TouchableOpacity
-          style={[styles.sendBtn, canSend && styles.sendBtnActive]}
-          onPress={handleSend}
-          disabled={!canSend}
-          hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
-        >
-          <Ionicons
-            name="arrow-up"
-            size={18}
-            color={canSend ? colors.primaryForeground : colors.mutedForeground}
-          />
-        </TouchableOpacity>
+        {streaming ? (
+          <TouchableOpacity
+            style={[styles.sendBtn, styles.stopBtnActive]}
+            onPress={onStop}
+            hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+          >
+            <View style={styles.stopIcon} />
+          </TouchableOpacity>
+        ) : (
+          <TouchableOpacity
+            style={[styles.sendBtn, canSend && styles.sendBtnActive]}
+            onPress={handleSend}
+            disabled={!canSend}
+            hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+          >
+            <Ionicons
+              name="arrow-up"
+              size={18}
+              color={canSend ? colors.primaryForeground : colors.mutedForeground}
+            />
+          </TouchableOpacity>
+        )}
       </View>
     </View>
   );
@@ -109,7 +124,6 @@ const makeStyles = (c: ColorTokens) => StyleSheet.create({
   wrapper: {
     paddingHorizontal: 12,
     paddingTop: 8,
-    paddingBottom: Platform.OS === 'ios' ? 4 : 8,
     backgroundColor: c.background,
   },
   thumbRow: { marginBottom: 8 },
@@ -173,5 +187,14 @@ const makeStyles = (c: ColorTokens) => StyleSheet.create({
   },
   sendBtnActive: {
     backgroundColor: c.primary,
+  },
+  stopBtnActive: {
+    backgroundColor: c.foreground,
+  },
+  stopIcon: {
+    width: 12,
+    height: 12,
+    borderRadius: 2,
+    backgroundColor: c.background,
   },
 });

@@ -1,14 +1,15 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import {
+  Animated,
   View,
   FlatList,
   StyleSheet,
-  SafeAreaView,
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
   TouchableOpacity,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams } from 'expo-router';
 import { ChatBubble } from '../../../components/ChatBubble';
@@ -21,17 +22,20 @@ import { useQuery } from '@tanstack/react-query';
 import { useColors } from '../../../lib/theme-context';
 import { ColorTokens } from '../../../lib/colors';
 
-const AT_BOTTOM_THRESHOLD = 80;
+const AT_BOTTOM_THRESHOLD = 50;
 
 export default function ChatScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const listRef = useRef<FlatList>(null);
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  const [showScrollBtn, setShowScrollBtn] = useState(false);
-  const isAtBottomRef = useRef(true);
+  const showBtnRef = useRef(false);
+  const scrollBtnOpacity = useRef(new Animated.Value(0)).current;
+  const contentHeightRef = useRef(0);
+  const layoutHeightRef = useRef(0);
+  const scrollOffsetRef = useRef(0);
 
-  const { messages, streaming, sendMessage, retry, loadMessages } = useChatStream(id);
+  const { messages, streaming, sendMessage, stopStreaming, retry, loadMessages } = useChatStream(id);
   const { isConnected } = useNetworkStatus();
 
   const { data: session } = useQuery({
@@ -52,38 +56,54 @@ export default function ChatScreen() {
     }
   }, [historyMessages]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Auto-scroll only when user is already near the bottom
-  useEffect(() => {
-    if (messages.length > 0 && isAtBottomRef.current) {
-      listRef.current?.scrollToEnd({ animated: true });
+  const checkScrollBtn = useCallback(() => {
+    if (!layoutHeightRef.current) return;
+    const dist = contentHeightRef.current - layoutHeightRef.current - scrollOffsetRef.current;
+    const shouldShow = dist > AT_BOTTOM_THRESHOLD;
+    if (shouldShow !== showBtnRef.current) {
+      showBtnRef.current = shouldShow;
+      scrollBtnOpacity.setValue(shouldShow ? 1 : 0);
     }
-  }, [messages]);
+  }, [scrollBtnOpacity]);
+
+  const handleContentSizeChange = useCallback((_: number, h: number) => {
+    contentHeightRef.current = h;
+    checkScrollBtn();
+  }, [checkScrollBtn]);
+
+  const handleLayout = useCallback((event: any) => {
+    layoutHeightRef.current = event.nativeEvent.layout.height;
+    checkScrollBtn();
+  }, [checkScrollBtn]);
 
   const handleScroll = useCallback((event: any) => {
     const { layoutMeasurement, contentOffset, contentSize } = event.nativeEvent;
-    const distanceFromBottom = contentSize.height - layoutMeasurement.height - contentOffset.y;
-    const atBottom = distanceFromBottom < AT_BOTTOM_THRESHOLD;
-    isAtBottomRef.current = atBottom;
-    setShowScrollBtn(!atBottom);
-  }, []);
+    scrollOffsetRef.current = contentOffset.y;
+    layoutHeightRef.current = layoutMeasurement.height;
+    contentHeightRef.current = contentSize.height;
+    checkScrollBtn();
+  }, [checkScrollBtn]);
 
   const scrollToBottom = useCallback(() => {
-    listRef.current?.scrollToEnd({ animated: true });
-  }, []);
+    const offset = Math.max(0, contentHeightRef.current - layoutHeightRef.current);
+    listRef.current?.scrollToOffset({ offset, animated: true });
+    showBtnRef.current = false;
+    scrollBtnOpacity.setValue(0);
+  }, [scrollBtnOpacity]);
 
   const handleSend = async (text: string, attachments: Attachment[] = []) => {
     sendMessage(text, attachments);
+    setTimeout(scrollToBottom, 100);
   };
 
   return (
-    <SafeAreaView style={styles.safe}>
-      <ChatHeader title={session?.title ?? 'Chat'} showBack />
+    <KeyboardAvoidingView
+      style={styles.safe}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+    >
+      <SafeAreaView style={styles.flex} edges={['top', 'left', 'right']}>
+        <ChatHeader title={session?.title ?? 'Chat'} showBack />
 
-      <KeyboardAvoidingView
-        style={styles.flex}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={0}
-      >
         <View style={styles.flex}>
           {isLoading ? (
             <View style={styles.loading}>
@@ -92,6 +112,7 @@ export default function ChatScreen() {
           ) : (
             <FlatList
               ref={listRef}
+              style={styles.flex}
               data={messages}
               keyExtractor={(m) => m.id}
               renderItem={({ item, index }) => (
@@ -106,25 +127,25 @@ export default function ChatScreen() {
                 />
               )}
               contentContainerStyle={styles.list}
+              onLayout={handleLayout}
+              onContentSizeChange={handleContentSizeChange}
               onScroll={handleScroll}
-              scrollEventThrottle={100}
+              scrollEventThrottle={16}
             />
           )}
 
-          {showScrollBtn && (
-            <TouchableOpacity
-              style={[styles.scrollBtn, { backgroundColor: colors.card, borderColor: colors.border }]}
-              onPress={scrollToBottom}
-              activeOpacity={0.8}
-            >
+          <Animated.View
+            style={[styles.scrollBtn, { opacity: scrollBtnOpacity, backgroundColor: colors.card, borderColor: colors.border }]}
+          >
+            <TouchableOpacity onPress={scrollToBottom} activeOpacity={0.8} hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}>
               <Ionicons name="chevron-down" size={20} color={colors.foreground} />
             </TouchableOpacity>
-          )}
+          </Animated.View>
         </View>
 
-        <ChatInput onSend={handleSend} disabled={streaming || isLoading || !isConnected} />
-      </KeyboardAvoidingView>
-    </SafeAreaView>
+        <ChatInput onSend={handleSend} onStop={stopStreaming} streaming={streaming} disabled={isLoading || !isConnected} />
+      </SafeAreaView>
+    </KeyboardAvoidingView>
   );
 }
 

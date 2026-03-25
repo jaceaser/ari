@@ -13,15 +13,16 @@
     },
     "preview": {
       "distribution": "internal",
+      "autoIncrement": true,
       "android": {
-        "buildType": "app-bundle",
-        "autoIncrement": true
+        "buildType": "apk"
       },
       "env": {
         "EXPO_PUBLIC_API_URL": "https://api.reilabs.ai"
       }
     },
     "production": {
+      "autoIncrement": true,
       "env": {
         "EXPO_PUBLIC_API_URL": "https://api.reilabs.ai"
       }
