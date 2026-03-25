@@ -11,6 +11,7 @@ type BillingStatus = {
   tier: string | null;
   status: string | null;
   expires_at: string | null;
+  stripe_customer_id: string | null;
 };
 
 const TIER_LABELS: Record<string, string> = {
@@ -109,19 +110,23 @@ export default function BillingPage() {
               </span>
             </div>
           )}
-          <Button
-            disabled={portalLoading}
-            onClick={handleManageSubscription}
-            variant="outline"
-          >
-            {portalLoading ? "Redirecting..." : "Manage Subscription"}
-          </Button>
-          {portalError && (
-            <p className="text-xs text-red-500">{portalError}</p>
+          {billing.stripe_customer_id && (
+            <>
+              <Button
+                disabled={portalLoading}
+                onClick={handleManageSubscription}
+                variant="outline"
+              >
+                {portalLoading ? "Redirecting..." : "Manage Subscription"}
+              </Button>
+              {portalError && (
+                <p className="text-xs text-red-500">{portalError}</p>
+              )}
+              <p className="text-xs text-muted-foreground">
+                Change your plan, update payment method, or cancel.
+              </p>
+            </>
           )}
-          <p className="text-xs text-muted-foreground">
-            Change your plan, update payment method, or cancel.
-          </p>
         </div>
       ) : (
         <div className="flex w-full flex-col gap-4 rounded-lg border p-6">
