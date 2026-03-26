@@ -244,6 +244,44 @@ ROUTE_KEYWORDS: dict[str, set[str]] = {
         "foreclosed",
         "hud home",
         "hud homes",
+        # Spanish
+        "propietarios cansados",
+        "propietario cansado",
+        "dueños cansados",
+        "dueño cansado",
+        "vendedores motivados",
+        "vendedor motivado",
+        "propietarios ausentes",
+        "propietario ausente",
+        "propiedades vacantes",
+        "propiedad vacante",
+        "ejecuciones hipotecarias",
+        "ejecución hipotecaria",
+        "pre-ejecución",
+        "embargo hipotecario",
+        "banco dueño",
+        "propiedad del banco",
+        "en venta por dueño",
+        "en venta por el dueño",
+        "terreno",
+        "terrenos",
+        "lote",
+        "lotes",
+        "alta equidad",
+        "libre de hipoteca",
+        "listado por agente",
+        "propiedad de agente",
+        "sujeto a hipoteca",
+        "heredada",
+        "heredadas",
+        "sucesión",
+        "sucesion",
+        "impuestos atrasados",
+        "deuda atrasada",
+        "dame una lista",
+        "dame los leads",
+        "busca una lista",
+        "encuentra una lista",
     },
     "Comps": {
         "comp",
@@ -253,12 +291,33 @@ ROUTE_KEYWORDS: dict[str, set[str]] = {
         "after repair value",
         "valuation",
         "estimate value",
+        # Spanish
+        "comparables",
+        "valor arv",
+        "valor después de reparaciones",
+        "valor despues de reparaciones",
+        "cuánto vale",
+        "cuanto vale",
+        "análisis de mercado",
+        "analisis de mercado",
     },
-    "Attorneys": {"attorney", "attorneys", "lawyer", "probate", "eviction", "legal"},
+    "Attorneys": {
+        "attorney", "attorneys", "lawyer", "probate", "eviction", "legal",
+        # Spanish
+        "abogado", "abogados", "abogado inmobiliario", "abogados de bienes raices",
+        "abogados de bienes raíces", "abogados de desalojo", "abogados de embargo",
+        "busca abogados", "encuentra abogados",
+    },
     "Strategy": {"strategy", "plan", "business plan", "approach", "roadmap", "deal flow"},
     "Education": {"how", "explain", "learn", "education", "what is", "why", "guide"},
     "Contracts": {"contract", "assignment", "purchase agreement", "clause", "legal doc"},
-    "Buyers": {"buyer", "buyers list", "cash buyer", "investor buyer", "disposition"},
+    "Buyers": {
+        "buyer", "buyers list", "cash buyer", "investor buyer", "disposition",
+        # Spanish
+        "compradores", "compradores en efectivo", "compradores de contado",
+        "compradores de efectivo", "inversionistas compradores",
+        "encuentra compradores", "busca compradores", "lista de compradores",
+    },
 }
 
 STATE_ABBREVIATIONS: dict[str, str] = {
@@ -777,22 +836,56 @@ _ZILLOW_URL_TEMPLATES: dict[str, str] = {
 
 # Keywords that map to a template
 _LEAD_TYPE_KEYWORDS: dict[str, list[str]] = {
-    "fsbo": ["fsbo", "for sale by owner", "by owner", "owner listed"],
-    "pre-foreclosure": ["pre-foreclosure", "preforeclosure", "pre foreclosure", "auction", "lis pendens"],
-    "fixer-upper": ["fixer", "fixer-upper", "fixer upper", "rehab", "wholesale", "distressed"],
-    "as-is": ["as-is", "as is"],
-    "tired-landlords": ["tired landlord", "landlord", "rental", "absentee owner", "absentee",
-                        "propietarios cansados", "propietario cansado", "dueños cansados",
-                        "propietarios ausentes", "arrendadores cansados"],
-    "subject-to": ["subject to", "subject-to", "subto", "sub to", "sub2"],
-    "land": ["land", "lot", "vacant land", "acreage"],
+    "fsbo": [
+        "fsbo", "for sale by owner", "by owner", "owner listed",
+        # Spanish
+        "en venta por el dueño", "en venta por dueño", "por el propietario",
+        "venta directa por propietario", "sin agente",
+    ],
+    "pre-foreclosure": [
+        "pre-foreclosure", "preforeclosure", "pre foreclosure", "auction", "lis pendens",
+        # Spanish
+        "pre-ejecución", "pre ejecución", "ejecución hipotecaria", "embargo hipotecario",
+        "pendiente de ejecución", "remate hipotecario", "subasta hipotecaria",
+    ],
+    "fixer-upper": [
+        "fixer", "fixer-upper", "fixer upper", "rehab", "wholesale", "distressed",
+        # Spanish
+        "para remodelar", "necesita reparaciones", "en mal estado", "propiedad distressed",
+        "venta al mayoreo", "wholesale", "vendedores motivados", "vendedor motivado",
+    ],
+    "as-is": ["as-is", "as is", "tal cual", "tal como está"],
+    "tired-landlords": [
+        "tired landlord", "landlord", "rental", "absentee owner", "absentee",
+        # Spanish
+        "propietarios cansados", "propietario cansado", "dueños cansados", "dueño cansado",
+        "propietarios ausentes", "propietario ausente", "arrendadores cansados",
+        "arrendador cansado", "casero cansado", "caseros cansados",
+    ],
+    "subject-to": [
+        "subject to", "subject-to", "subto", "sub to", "sub2",
+        # Spanish
+        "sujeto a hipoteca", "sujeto a deuda", "sujeto a", "tomar la hipoteca",
+    ],
+    "land": [
+        "land", "lot", "vacant land", "acreage",
+        # Spanish
+        "terreno", "terrenos", "lote", "lotes", "tierra", "tierras",
+        "predio", "predios", "parcela", "parcelas", "suelo vacante",
+    ],
     "agent-owned": [
         "agent owned", "agent listed", "agent-owned", "realtor listed",
         "mls listed", "listed by agent", "broker listed",
+        # Spanish
+        "listado por agente", "propiedad de agente", "agente dueño",
+        "listado en mls", "corredor listado",
     ],
     "reo": [
         "reo", "bank owned", "bank-owned", "foreclosure", "foreclosed",
         "hud home", "hud homes",
+        # Spanish
+        "banco dueño", "propiedad del banco", "propiedad bancaria", "banco propietario",
+        "ejecución", "ejecutada", "rematada", "en remate", "hud casa",
     ],
     "high-equity": [
         "high equity", "free and clear", "no mortgage", "paid off", "equity rich",
@@ -1028,21 +1121,35 @@ async def _query_buyers(
     use_partition_key: bool,
 ) -> tuple[list[dict[str, Any]], int, int]:
     city_value = city.lower().strip()
+    city_title = city.strip().title()
     state_value = state.upper().strip()
 
+    # Handle both string c.cities ("Houston, Dallas") and array c.cities (["Houston"]).
+    # UPPER(c.state) makes the state comparison case-insensitive regardless of how the
+    # data was imported ("TX" vs "tx").
     count_query = """
         SELECT VALUE COUNT(1) FROM c
-        WHERE CONTAINS(LOWER(c.cities), @city)
-        AND c.state = @state
+        WHERE (
+            CONTAINS(LOWER(c.cities), @city) OR
+            ARRAY_CONTAINS(c.cities, @city) OR
+            ARRAY_CONTAINS(c.cities, @city_title)
+        )
+        AND UPPER(c.state) = @state
     """
     count_params = [
         {"name": "@city", "value": city_value},
+        {"name": "@city_title", "value": city_title},
         {"name": "@state", "value": state_value},
     ]
 
     query_kwargs: dict[str, Any] = {"max_item_count": 1, "continuation_token_limit": 8}
     if use_partition_key:
         query_kwargs["partition_key"] = state_value
+
+    logger.info(
+        "[buyers] query city=%r city_title=%r state=%r partition_key=%s",
+        city_value, city_title, state_value, use_partition_key,
+    )
 
     total_count = 0
     count_iter = container_client.query_items(
@@ -1057,6 +1164,8 @@ async def _query_buyers(
             total_count = 0
         break
 
+    logger.info("[buyers] count query returned total_count=%d", total_count)
+
     max_offset = min(500, max(0, total_count - sample_size))
     offset = 0 if total_count <= sample_size else random.randint(0, max_offset)
 
@@ -1068,13 +1177,18 @@ async def _query_buyers(
             c.Phones_Formatted AS Phones,
             c.Email
         FROM c
-        WHERE CONTAINS(LOWER(c.cities), @city)
-        AND c.state = @state
+        WHERE (
+            CONTAINS(LOWER(c.cities), @city) OR
+            ARRAY_CONTAINS(c.cities, @city) OR
+            ARRAY_CONTAINS(c.cities, @city_title)
+        )
+        AND UPPER(c.state) = @state
         ORDER BY c.id
         OFFSET @offset LIMIT @sample_size
     """
     data_params = [
         {"name": "@city", "value": city_value},
+        {"name": "@city_title", "value": city_title},
         {"name": "@state", "value": state_value},
         {"name": "@offset", "value": offset},
         {"name": "@sample_size", "value": sample_size},

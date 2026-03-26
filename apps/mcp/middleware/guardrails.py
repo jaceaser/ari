@@ -133,24 +133,54 @@ _CORE_SIGNALS: list[re.Pattern[str]] = [
         r"free\s+and\s+clear",
         r"hud\s+homes?",
         r"county\s+(leads?|list|properties)",
-        # Spanish equivalents — so Spanish-language queries pass the intent guard
-        r"propietarios?\s+cansados?",   # tired landlords
-        r"propietarios?\s+ausentes?",   # absentee owners
-        r"propiedades?\s+vacantes?",    # vacant properties
-        r"vendedores?\s+motivados?",    # motivated sellers
-        r"ejecuciones?\s+hipotecarias?",# foreclosures
-        r"pre[\s\-]ejecuci[oó]n",      # pre-foreclosure
-        r"due[ñn]os?\s+cansados?",      # tired owners
-        r"lista\s+de\s+(propietarios?|vendedores?|propiedades?|leads?)",
-        r"dame\s+(una\s+)?lista",       # give me a list
+        # ── Spanish equivalents — all tool categories ──────────────────────
+        # Leads / general list requests
+        r"propietarios?\s+cansados?",         # tired landlords
+        r"due[ñn]os?\s+cansados?",
+        r"propietarios?\s+ausentes?",         # absentee owners
+        r"propiedades?\s+vacantes?",          # vacant properties
+        r"vendedores?\s+motivados?",          # motivated sellers
+        r"ejecuciones?\s+hipotecarias?",      # foreclosures
+        r"pre[\s\-]ejecuci[oó]n",            # pre-foreclosure
+        r"embargo\s+hipotecario",
+        r"banco\s+due[ñn]o",                  # bank owned / REO
+        r"propiedad\s+del\s+banco",
+        r"en\s+venta\s+por\s+(el\s+)?due[ñn]o",  # FSBO
+        r"terrenos?\s+(disponibles?|en\s+venta)?", # land
+        r"lotes?\s+(disponibles?|en\s+venta)?",
+        r"alta\s+equidad",                    # high equity
+        r"libre\s+de\s+hipoteca",             # free and clear
+        r"listado\s+por\s+agente",            # agent listed
+        r"propiedad\s+de\s+agente",           # agent owned
+        r"sujeto\s+a\s+(hipoteca|deuda)",     # subject-to
+        r"heredadas?",                         # inherited
+        r"sucesi[oó]n\s+testamentaria",        # probate
+        r"deuda\s+(atrasada|vencida)",         # behind on payments
+        r"impuestos?\s+atrasados?",            # tax delinquent
+        r"lista\s+de\s+(propietarios?|vendedores?|propiedades?|leads?|terrenos?|lotes?)",
+        r"dame\s+(una\s+)?lista",
         r"d[aá]me\s+(una\s+)?lista",
-        r"compradores?\s+(en\s+efectivo|inversionistas?)",  # cash buyers
+        r"busca\s+(una\s+)?lista",
+        r"encuentra\s+(una\s+)?lista",
+        r"obt[eé]n\s+(una\s+)?lista",
+        # Buyers
+        r"compradores?\s+(en\s+efectivo|inversionistas?)",
         r"compradores?\s+de\s+(efectivo|contado)",
-        r"comparables?",                # comps
-        r"valor\s+(de\s+)?despu[eé]s\s+de\s+reparaciones?",  # ARV
-        r"propiedades?\s+en\s+remate",  # foreclosure properties
-        r"banco\s+due[ñn]o",            # bank owned
-        r"abogados?\s+de\s+bienes\s+ra[ií]ces?",  # real estate attorneys
+        r"encuentra\s+compradores?",
+        r"busca\s+compradores?",
+        r"inversionistas?\s+compradores?",
+        # Comps / ARV
+        r"comparables?",
+        r"valor\s+(de\s+)?despu[eé]s\s+de\s+reparaciones?",
+        r"valor\s+arv",
+        r"cu[aá]nto\s+vale\s+(la\s+)?propiedad",
+        r"an[aá]lisis\s+de\s+(mercado|comps?)",
+        # Attorneys
+        r"abogados?\s+de\s+bienes\s+ra[ií]ces?",
+        r"abogados?\s+de\s+(propiedad|propiedades?|desalojo|embargo|sucesi[oó]n)",
+        r"abogado\s+inmobiliario",
+        r"busca\s+abogados?",
+        r"encuentra\s+abogados?",
     ]
 ]
 
