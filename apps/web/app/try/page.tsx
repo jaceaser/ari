@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Streamdown } from "streamdown";
+import { useTranslations } from "next-intl";
 
 const API_URL =
   process.env.NEXT_PUBLIC_API_URL ||
@@ -26,6 +27,8 @@ function decodeJwtPayload(token: string): Record<string, unknown> | null {
 }
 
 export default function TryPage() {
+  const t = useTranslations("try");
+
   // Lead gate
   const [leadCaptured, setLeadCaptured] = useState(false);
   const [leadName, setLeadName] = useState("");
@@ -258,9 +261,9 @@ export default function TryPage() {
         <div className="flex-1 flex flex-col items-center justify-center px-6 py-8">
           <div className="w-full max-w-sm space-y-5">
             <div className="space-y-1 text-center">
-              <p className="font-semibold text-base">Try ARI free</p>
+              <p className="font-semibold text-base">{t("title")}</p>
               <p className="text-xs text-muted-foreground">
-                Ask 3 real estate questions — no account needed.
+                {t("subtitle")}
               </p>
             </div>
             <form onSubmit={handleLeadSubmit} className="space-y-3">
@@ -268,7 +271,7 @@ export default function TryPage() {
                 type="text"
                 value={leadName}
                 onChange={(e) => setLeadName(e.target.value)}
-                placeholder="Your name"
+                placeholder={t("namePlaceholder")}
                 required
                 maxLength={100}
                 disabled={leadSubmitting}
@@ -279,7 +282,7 @@ export default function TryPage() {
                 type="email"
                 value={leadEmail}
                 onChange={(e) => setLeadEmail(e.target.value)}
-                placeholder="Email address"
+                placeholder={t("emailPlaceholder")}
                 required
                 maxLength={200}
                 disabled={leadSubmitting}
@@ -294,16 +297,14 @@ export default function TryPage() {
                   className="mt-0.5 size-4 shrink-0 accent-[hsl(41,92%,67%)] cursor-pointer"
                 />
                 <span className="text-xs text-muted-foreground leading-relaxed">
-                  I agree to receive informational and marketing emails from REI
-                  Labs. Consent is not a condition of purchase. You may
-                  unsubscribe at any time. By checking this box, I agree to the{" "}
+                  {t("consent")}{" "}
                   <a
                     href="https://reilabs.ai/privacy-policy"
                     target="_top"
                     rel="noopener noreferrer"
                     className="underline underline-offset-2 hover:text-foreground transition-colors"
                   >
-                    Privacy Policy
+                    {t("privacyPolicy")}
                   </a>{" "}
                   and{" "}
                   <a
@@ -312,7 +313,7 @@ export default function TryPage() {
                     rel="noopener noreferrer"
                     className="underline underline-offset-2 hover:text-foreground transition-colors"
                   >
-                    Terms of Service
+                    {t("termsOfService")}
                   </a>
                   .
                 </span>
@@ -325,7 +326,7 @@ export default function TryPage() {
                 disabled={!leadName.trim() || !leadEmail.trim() || !leadConsent || leadSubmitting}
                 className="w-full bg-primary text-primary-foreground text-sm font-semibold py-2.5 rounded-xl hover:opacity-90 transition-opacity disabled:opacity-40"
               >
-                {leadSubmitting ? "Starting..." : "Start chatting →"}
+                {leadSubmitting ? t("starting") : t("startChatting")}
               </button>
             </form>
           </div>
@@ -336,8 +337,8 @@ export default function TryPage() {
           <div ref={scrollContainerRef} className="flex-1 overflow-y-auto px-4 py-4 space-y-3 min-h-0">
             {messages.length === 0 && tokenReady && (
               <div className="text-center text-sm text-muted-foreground mt-10 space-y-1">
-                <p className="font-medium text-foreground">Ask ARI anything about real estate</p>
-                <p className="text-xs">Leads · Comps · Strategy · Contracts</p>
+                <p className="font-medium text-foreground">{t("chatTitle")}</p>
+                <p className="text-xs">{t("chatSubtitle")}</p>
               </div>
             )}
 
@@ -357,7 +358,7 @@ export default function TryPage() {
                     msg.content ? (
                       <Streamdown>{msg.content}</Streamdown>
                     ) : isStreaming && i === messages.length - 1 ? (
-                      <span className="opacity-50">●●●</span>
+                      <span className="opacity-50">...</span>
                     ) : null
                   ) : (
                     msg.content
@@ -370,9 +371,9 @@ export default function TryPage() {
           {/* Limit reached CTA */}
           {limitReached && (
             <div className="px-4 py-4 border-t bg-muted text-center space-y-2 shrink-0">
-              <p className="text-sm font-medium">You&apos;ve used your 3 free questions</p>
+              <p className="text-sm font-medium">{t("usedFreeQuestions")}</p>
               <p className="text-xs text-muted-foreground">
-                Get full access to leads, comps, live data, and more.
+                {t("upgradeDesc")}
               </p>
               <a
                 href={SIGNUP_URL}
@@ -380,7 +381,7 @@ export default function TryPage() {
                 rel="noopener noreferrer"
                 className="inline-block mt-1 bg-primary text-primary-foreground text-sm font-semibold px-5 py-2 rounded-xl hover:opacity-90 transition-opacity"
               >
-                Get full access to ARI →
+                {t("upgrade")}
               </a>
             </div>
           )}
@@ -397,7 +398,7 @@ export default function TryPage() {
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 placeholder={
-                  tokenReady ? "Ask a real estate question..." : "Loading..."
+                  tokenReady ? t("messagePlaceholder") : t("starting")
                 }
                 disabled={isStreaming || !tokenReady}
                 maxLength={500}
@@ -408,7 +409,7 @@ export default function TryPage() {
                 disabled={!input.trim() || isStreaming || !tokenReady}
                 className="bg-primary text-primary-foreground text-sm font-medium px-4 py-2 rounded-xl hover:opacity-90 transition-opacity disabled:opacity-40 shrink-0"
               >
-                {isStreaming ? "..." : "Ask"}
+                {isStreaming ? "..." : t("ask")}
               </button>
             </form>
           )}
