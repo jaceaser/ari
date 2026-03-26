@@ -62,3 +62,4 @@ blob-report/
 # Misc
 *.pem
 .turbo
+apps/mobile/.expo
