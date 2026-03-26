@@ -67,7 +67,7 @@ export default function SettingsScreen() {
         <View style={styles.headerBtn} />
       </View>
 
-      <ScrollView contentContainerStyle={styles.scroll}>
+      <ScrollView style={styles.scrollBg} contentContainerStyle={styles.scroll}>
         <View style={styles.profileCard}>
           <View style={styles.avatar}>
             <Text style={styles.avatarText}>{initial}</Text>
@@ -126,7 +126,7 @@ function RowItem({ icon, label, onPress, right, danger, colors }: {
 }
 
 const makeStyles = (c: ColorTokens) => StyleSheet.create({
-  safe: { flex: 1, backgroundColor: c.muted },
+  safe: { flex: 1, backgroundColor: c.background },
   header: {
     height: 52,
     flexDirection: 'row',
@@ -138,6 +138,7 @@ const makeStyles = (c: ColorTokens) => StyleSheet.create({
   },
   headerBtn: { width: 44, alignItems: 'center' },
   headerTitle: { flex: 1, fontSize: 17, fontWeight: '700', color: c.foreground, textAlign: 'center' },
+  scrollBg: { backgroundColor: c.muted },
   scroll: { padding: 16 },
   profileCard: {
     flexDirection: 'row',
