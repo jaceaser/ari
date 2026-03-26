@@ -394,16 +394,30 @@ _LEAD_TYPE_LIST = ", ".join([
 
 _LOCATION_EXTRACT_SYSTEM = (
     "You extract real estate lead search parameters from a user prompt.\n"
+    "The prompt may be in English OR Spanish — handle both.\n"
     "Return ONLY a JSON object (no markdown, no explanation) with these fields:\n"
     "  city: string (city or county name, title case) or null\n"
     "  state: string (2-letter abbreviation, uppercase) or null\n"
     f"  lead_type: one of [{_LEAD_TYPE_LIST}] — pick the closest match\n"
+    "Spanish → lead_type mappings: "
+    "propietarios cansados / dueños cansados / arrendadores cansados = tired-landlords; "
+    "propietarios ausentes = tired-landlords; "
+    "vendedores motivados / vendedores en apuros = fixer-upper; "
+    "pre-ejecución / ejecución hipotecaria / embargo = pre-foreclosure; "
+    "banco dueño / propiedad del banco / REO = reo; "
+    "en venta por dueño / por el dueño = fsbo; "
+    "propiedades vacantes = fixer-upper; "
+    "alta equidad / libre de hipoteca = high-equity.\n"
     "Examples:\n"
     '  "tired landlords in Fort Worth TX" → {"city":"Fort Worth","state":"TX","lead_type":"tired-landlords"}\n'
     '  "fsbo in Austin, Texas" → {"city":"Austin","state":"TX","lead_type":"fsbo"}\n'
     '  "bank owned homes Dallas TX" → {"city":"Dallas","state":"TX","lead_type":"reo"}\n'
     '  "agent listed properties San Antonio" → {"city":"San Antonio","state":"TX","lead_type":"agent-owned"}\n'
     '  "pre-foreclosures Harris County TX" → {"city":"Harris County","state":"TX","lead_type":"pre-foreclosure"}\n'
+    '  "propietarios cansados en Dallas, TX" → {"city":"Dallas","state":"TX","lead_type":"tired-landlords"}\n'
+    '  "dame una lista de propietarios cansados en Houston TX" → {"city":"Houston","state":"TX","lead_type":"tired-landlords"}\n'
+    '  "ejecuciones hipotecarias en Miami FL" → {"city":"Miami","state":"FL","lead_type":"pre-foreclosure"}\n'
+    '  "compradores en efectivo en Atlanta GA" → {"city":"Atlanta","state":"GA","lead_type":"fixer-upper"}\n'
 )
 
 
