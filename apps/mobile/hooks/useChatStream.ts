@@ -3,6 +3,10 @@ import { AppState } from 'react-native';
 import { streamMessage, uploadFile, getMessages, Attachment } from '../lib/api';
 import i18n from '../lib/i18n';
 
+// How long to wait after a truncated stream before fetching the
+// complete response from the server (gives Cosmos DB time to save it).
+const TRUNCATION_REFETCH_DELAY_MS = 1500;
+
 export type ChatMessageItem = {
   id: string;
   role: 'user' | 'assistant';
@@ -50,6 +54,9 @@ export function useChatStream(sessionId: string) {
   const bgDisconnectedRef = useRef(false);
   const bgFetchPendingRef = useRef(false);
   const sessionIdRef = useRef(sessionId);
+  // True once any content chunk has been received for the current message.
+  // Used to distinguish "network error before any response" from "truncated stream".
+  const hasPartialContentRef = useRef(false);
 
   useEffect(() => { streamingRef.current = streaming; }, [streaming]);
   useEffect(() => { sessionIdRef.current = sessionId; }, [sessionId]);
@@ -61,7 +68,7 @@ export function useChatStream(sessionId: string) {
   //   - wait 2s for server to finish saving, then load the complete response
   useEffect(() => {
     const sub = AppState.addEventListener('change', (nextState) => {
-      if (nextState.match(/inactive|background/) && streamingRef.current) {
+      if (nextState === 'background' && streamingRef.current) {
         bgDisconnectedRef.current = true;
         bgFetchPendingRef.current = true;
       } else if (nextState === 'active' && bgFetchPendingRef.current) {
@@ -101,6 +108,7 @@ export function useChatStream(sessionId: string) {
       setError(null);
       setStreaming(true);
       abortRef.current = false;
+      hasPartialContentRef.current = false;
       lastInputRef.current = { content, attachments };
 
       const localImages = attachments.filter((a) => a.isImage).map((a) => a.uri);
@@ -157,17 +165,40 @@ export function useChatStream(sessionId: string) {
         documents.length ? documents : undefined,
         (chunk) => {
           if (abortRef.current) return;
+          hasPartialContentRef.current = true;
           chunkBuffer.current += chunk;
           if (!flushTimer.current) {
             flushTimer.current = setTimeout(flushBuffer, 32);
           }
         },
-        () => {
+        (complete) => {
           // Flush any remaining buffered text before marking done
           if (flushTimer.current) { clearTimeout(flushTimer.current); }
           flushBuffer();
           xhrAbortRef.current = null;
           setStreaming(false);
+          // If the server never sent [DONE], the iOS network layer closed the
+          // socket before the stream finished. The server already has the full
+          // response saved — fetch it after a short delay.
+          if (!complete && !abortRef.current) {
+            setTimeout(() => {
+              getMessages(sessionIdRef.current)
+                .then((msgs) => {
+                  if (!msgs?.length) return;
+                  const lastMsg = msgs[msgs.length - 1];
+                  if (lastMsg?.role !== 'assistant' || !lastMsg.content?.trim()) return;
+                  setMessages((prev) => {
+                    const lastLocal = prev[prev.length - 1];
+                    if (!lastLocal || lastLocal.role !== 'assistant') return prev;
+                    if (lastMsg.content.length <= lastLocal.text.length) return prev;
+                    return prev.map((m, i) =>
+                      i === prev.length - 1 ? { ...m, text: lastMsg.content } : m,
+                    );
+                  });
+                })
+                .catch(() => { /* silently ignore — user still has partial response */ });
+            }, TRUNCATION_REFETCH_DELAY_MS);
+          }
         },
         (err) => {
           xhrAbortRef.current = null;
@@ -175,6 +206,29 @@ export function useChatStream(sessionId: string) {
           if (bgDisconnectedRef.current) {
             // Stream was cut by app backgrounding — keep partial response, no error
             bgDisconnectedRef.current = false;
+            return;
+          }
+          // If we already received content, treat a network error as truncation
+          // rather than a hard failure — keep what we have and try to load the
+          // complete response from the server.
+          if (hasPartialContentRef.current && !abortRef.current) {
+            setTimeout(() => {
+              getMessages(sessionIdRef.current)
+                .then((msgs) => {
+                  if (!msgs?.length) return;
+                  const lastMsg = msgs[msgs.length - 1];
+                  if (lastMsg?.role !== 'assistant' || !lastMsg.content?.trim()) return;
+                  setMessages((prev) => {
+                    const lastLocal = prev[prev.length - 1];
+                    if (!lastLocal || lastLocal.role !== 'assistant') return prev;
+                    if (lastMsg.content.length <= lastLocal.text.length) return prev;
+                    return prev.map((m, i) =>
+                      i === prev.length - 1 ? { ...m, text: lastMsg.content } : m,
+                    );
+                  });
+                })
+                .catch(() => { /* silently ignore */ });
+            }, TRUNCATION_REFETCH_DELAY_MS);
             return;
           }
           setError(err.message);

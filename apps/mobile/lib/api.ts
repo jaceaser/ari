@@ -157,7 +157,7 @@ export function streamMessage(
   images: string[] | undefined,
   documents: Array<{ url: string; mediaType: string }> | undefined,
   onChunk: (text: string) => void,
-  onDone: () => void,
+  onDone: (complete: boolean) => void,
   onError: (err: Error) => void,
 ): { promise: Promise<void>; abort: () => void } {
   // Use XMLHttpRequest with onprogress — the only reliable streaming
@@ -170,6 +170,10 @@ export function streamMessage(
       let processed = 0;
       let buffer = '';
       let settled = false;
+      // Track whether the server sent the SSE [DONE] sentinel.
+      // If onload fires without us ever seeing [DONE], the stream was truncated
+      // (common on iOS where NSURLSession can close the socket early).
+      let doneSeen = false;
 
       const settle = (fn: () => void) => {
         if (settled) return;
@@ -194,7 +198,7 @@ export function streamMessage(
         for (const line of lines) {
           if (!line.startsWith('data: ')) continue;
           const data = line.slice(6).trim();
-          if (data === '[DONE]') continue;
+          if (data === '[DONE]') { doneSeen = true; continue; }
           try {
             const parsed = JSON.parse(data) as {
               choices?: Array<{ delta?: { content?: string } }>;
@@ -220,7 +224,26 @@ export function streamMessage(
           } catch { /* ignore */ }
           settle(() => onError(new Error(message)));
         } else {
-          settle(() => onDone());
+          // Flush any SSE data that onprogress didn't finish processing.
+          // This handles the case where onload fires before onprogress delivers
+          // the final bytes (common on React Native), leaving text stuck in buffer.
+          const finalData = xhr.responseText.slice(processed);
+          if (finalData || buffer) {
+            const lines = (buffer + finalData).split('\n');
+            for (const line of lines) {
+              if (!line.startsWith('data: ')) continue;
+              const data = line.slice(6).trim();
+              if (data === '[DONE]') { doneSeen = true; continue; }
+              try {
+                const parsed = JSON.parse(data) as {
+                  choices?: Array<{ delta?: { content?: string } }>;
+                };
+                const text = parsed.choices?.[0]?.delta?.content;
+                if (text) onChunk(text);
+              } catch { /* non-JSON line — skip */ }
+            }
+          }
+          settle(() => onDone(doneSeen));
         }
       };
 
