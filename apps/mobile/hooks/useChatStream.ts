@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState } from 'react-native';
 import { streamMessage, uploadFile, getMessages, Attachment } from '../lib/api';
+import i18n from '../lib/i18n';
 
 export type ChatMessageItem = {
   id: string;
@@ -20,22 +21,22 @@ function friendlyError(err: Error): string {
     msg.toLowerCase().includes('fetch') ||
     msg.toLowerCase().includes('connect')
   ) {
-    return "Couldn't connect to ARI. Check your internet connection.";
+    return i18n.t('errors.network');
   }
   if (msg.includes('401') || msg.toLowerCase().includes('unauthorized')) {
-    return 'Your session has expired. Please sign in again.';
+    return i18n.t('errors.unauthorized');
   }
   if (
     msg.includes('429') ||
     msg.toLowerCase().includes('rate limit') ||
     msg.toLowerCase().includes('too many')
   ) {
-    return 'Too many requests. Please wait a moment and try again.';
+    return i18n.t('errors.rateLimit');
   }
   if (/[^1-4]5\d\d/.test(msg) || /^5\d\d/.test(msg) || msg.toLowerCase().includes('server error')) {
-    return 'Something went wrong on our end. Please try again.';
+    return i18n.t('errors.server');
   }
-  return msg || 'Something went wrong. Please try again.';
+  return msg || i18n.t('errors.generic');
 }
 
 export function useChatStream(sessionId: string) {

@@ -15,6 +15,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
 import { listSessions, deleteSession, Session } from '../lib/api';
 import { useColors } from '../lib/theme-context';
 import { ColorTokens } from '../lib/colors';
@@ -49,6 +50,7 @@ function groupSessions(sessions: Session[]): Section[] {
 }
 
 export function SidebarOverlay() {
+  const { t } = useTranslation();
   const { isOpen, anim, close } = useSidebar();
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -147,7 +149,7 @@ export function SidebarOverlay() {
                 </TouchableOpacity>
               )}
               ListEmptyComponent={
-                <Text style={styles.emptyText}>No conversations yet</Text>
+                <Text style={styles.emptyText}>{t('sidebar.noConversations')}</Text>
               }
               contentContainerStyle={{ paddingBottom: 16 }}
             />
@@ -156,7 +158,7 @@ export function SidebarOverlay() {
           <View style={styles.footer}>
             <TouchableOpacity style={styles.footerRow} onPress={handleSettings}>
               <Ionicons name="person-circle-outline" size={22} color={colors.foreground} />
-              <Text style={styles.footerLabel}>Account & Settings</Text>
+              <Text style={styles.footerLabel}>{t('sidebar.accountSettings')}</Text>
             </TouchableOpacity>
           </View>
         </SafeAreaView>

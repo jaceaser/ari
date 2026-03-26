@@ -14,6 +14,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
+import { useTranslation } from 'react-i18next';
 import { sendMagicLink, verifyMagicLink } from '../../lib/api';
 import { saveAuth } from '../../lib/auth';
 import { useColors } from '../../lib/theme-context';
@@ -22,6 +23,7 @@ import { ColorTokens } from '../../lib/colors';
 type SendStatus = 'pending' | 'ok' | 'error' | 'rate_limited';
 
 export default function LoginScreen() {
+  const { t } = useTranslation();
   const router = useRouter();
   const [email, setEmail] = useState('');
   const [sent, setSent] = useState(false);
@@ -48,7 +50,7 @@ export default function LoginScreen() {
   const handleSend = () => {
     const trimmed = email.trim().toLowerCase();
     if (!trimmed || !trimmed.includes('@')) {
-      Alert.alert('Invalid email', 'Please enter a valid email address.');
+      Alert.alert(t('auth.invalidEmailTitle'), t('auth.invalidEmailMessage'));
       return;
     }
     // Navigate immediately — don't make the user wait for the network
@@ -89,40 +91,40 @@ export default function LoginScreen() {
           <View style={styles.center}>
             <Text style={styles.logo}>ARI</Text>
             <Text style={styles.emoji}>📬</Text>
-            <Text style={styles.title}>Check your email</Text>
+            <Text style={styles.title}>{t('auth.checkEmail')}</Text>
 
             {sendStatus === 'pending' && (
               <View style={styles.statusRow}>
                 <ActivityIndicator size="small" color={colors.mutedForeground} />
-                <Text style={styles.statusText}>Sending link to {email}…</Text>
+                <Text style={styles.statusText}>{t('auth.sendingLink', { email })}</Text>
               </View>
             )}
             {sendStatus === 'ok' && (
               <Text style={styles.subtitle}>
-                If you have an active subscription, a sign-in link is on its way to{' '}
+                {t('auth.linkSentMessage')}{' '}
                 <Text style={styles.emailHighlight}>{email}</Text>
-                .{'\n'}Tap the link in your email to sign in instantly.
+                .{'\n'}{t('auth.linkSentSuffix')}
               </Text>
             )}
             {sendStatus === 'rate_limited' && (
               <Text style={[styles.subtitle, styles.errorText]}>
-                Too many requests. Please wait a moment before trying again.
+                {t('auth.rateLimited')}
               </Text>
             )}
             {sendStatus === 'error' && (
               <View style={styles.errorRow}>
                 <Text style={[styles.subtitle, styles.errorText]}>
-                  Couldn't send the link.{' '}
+                  {t('auth.sendError')}{' '}
                 </Text>
                 <TouchableOpacity onPress={handleRetry}>
-                  <Text style={styles.retryText}>Try again</Text>
+                  <Text style={styles.retryText}>{t('auth.tryAgain')}</Text>
                 </TouchableOpacity>
               </View>
             )}
 
             <View style={styles.divider}>
               <View style={styles.dividerLine} />
-              <Text style={styles.dividerText}>or paste your token</Text>
+              <Text style={styles.dividerText}>{t('auth.pasteToken')}</Text>
               <View style={styles.dividerLine} />
             </View>
 
@@ -130,7 +132,7 @@ export default function LoginScreen() {
               style={styles.input}
               value={token}
               onChangeText={setToken}
-              placeholder="Paste token from email link"
+              placeholder={t('auth.tokenPlaceholder')}
               placeholderTextColor={colors.mutedForeground}
               autoCapitalize="none"
               autoCorrect={false}
@@ -146,19 +148,19 @@ export default function LoginScreen() {
               {verifying ? (
                 <ActivityIndicator color={colors.primaryForeground} />
               ) : (
-                <Text style={styles.buttonText}>Sign in with token</Text>
+                <Text style={styles.buttonText}>{t('auth.signInWithToken')}</Text>
               )}
             </TouchableOpacity>
 
             <View style={styles.subscribeBanner}>
-              <Text style={styles.subscribeBannerText}>Don't have a subscription?</Text>
+              <Text style={styles.subscribeBannerText}>{t('auth.noSubscription')}</Text>
               <TouchableOpacity onPress={handleSubscribe}>
-                <Text style={styles.subscribeBannerLink}>Subscribe here</Text>
+                <Text style={styles.subscribeBannerLink}>{t('auth.subscribeHere')}</Text>
               </TouchableOpacity>
             </View>
 
             <TouchableOpacity style={styles.linkButton} onPress={() => { setSent(false); setToken(''); setSendStatus('pending'); }}>
-              <Text style={styles.linkText}>Use a different email</Text>
+              <Text style={styles.linkText}>{t('auth.differentEmail')}</Text>
             </TouchableOpacity>
           </View>
         </KeyboardAvoidingView>
@@ -174,14 +176,14 @@ export default function LoginScreen() {
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.kav}>
         <View style={styles.center}>
           <Text style={styles.logo}>ARI</Text>
-          <Text style={styles.title}>Sign in</Text>
-          <Text style={styles.subtitle}>Enter your email to receive a magic link</Text>
+          <Text style={styles.title}>{t('auth.signInTitle')}</Text>
+          <Text style={styles.subtitle}>{t('auth.signInSubtitle')}</Text>
 
           <TextInput
             style={styles.input}
             value={email}
             onChangeText={setEmail}
-            placeholder="you@example.com"
+            placeholder={t('auth.emailPlaceholder')}
             placeholderTextColor={colors.mutedForeground}
             keyboardType="email-address"
             autoCapitalize="none"
@@ -195,7 +197,7 @@ export default function LoginScreen() {
             onPress={handleSend}
             disabled={!email.trim()}
           >
-            <Text style={styles.buttonText}>Send magic link</Text>
+            <Text style={styles.buttonText}>{t('auth.sendLink')}</Text>
           </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>

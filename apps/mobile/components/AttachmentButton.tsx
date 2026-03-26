@@ -3,6 +3,7 @@ import { ActionSheetIOS, Alert, Platform, TouchableOpacity, StyleSheet } from 'r
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
+import i18n from '../lib/i18n';
 import { Attachment } from '../lib/api';
 import { useColors } from '../lib/theme-context';
 import { ColorTokens } from '../lib/colors';
@@ -15,7 +16,7 @@ type Props = {
 async function pickFromCamera(onAttach: (a: Attachment) => void) {
   const { status } = await ImagePicker.requestCameraPermissionsAsync();
   if (status !== 'granted') {
-    Alert.alert('Permission required', 'Camera access is needed to take photos.');
+    Alert.alert(i18n.t('attachment.permissionTitle'), i18n.t('attachment.cameraPermission'));
     return;
   }
   const result = await ImagePicker.launchCameraAsync({
@@ -37,7 +38,7 @@ async function pickFromCamera(onAttach: (a: Attachment) => void) {
 async function pickFromLibrary(onAttach: (a: Attachment) => void) {
   const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
   if (status !== 'granted') {
-    Alert.alert('Permission required', 'Photo library access is needed.');
+    Alert.alert(i18n.t('attachment.permissionTitle'), i18n.t('attachment.libraryPermission'));
     return;
   }
   const result = await ImagePicker.launchImageLibraryAsync({
@@ -85,7 +86,7 @@ export function AttachmentButton({ onAttach, disabled }: Props) {
     if (Platform.OS === 'ios') {
       ActionSheetIOS.showActionSheetWithOptions(
         {
-          options: ['Cancel', 'Take Photo', 'Photo Library', 'Document (PDF / Word)'],
+          options: [i18n.t('attachment.cancel'), i18n.t('attachment.takePhoto'), i18n.t('attachment.photoLibrary'), i18n.t('attachment.document')],
           cancelButtonIndex: 0,
         },
         (index) => {
@@ -95,11 +96,11 @@ export function AttachmentButton({ onAttach, disabled }: Props) {
         },
       );
     } else {
-      Alert.alert('Attach file', 'Choose source', [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Camera', onPress: () => pickFromCamera(onAttach) },
-        { text: 'Photo Library', onPress: () => pickFromLibrary(onAttach) },
-        { text: 'Document (PDF / Word)', onPress: () => pickDocument(onAttach) },
+      Alert.alert(i18n.t('attachment.actionSheetTitle'), i18n.t('attachment.actionSheetSubtitle'), [
+        { text: i18n.t('attachment.cancel'), style: 'cancel' },
+        { text: i18n.t('attachment.camera'), onPress: () => pickFromCamera(onAttach) },
+        { text: i18n.t('attachment.photoLibrary'), onPress: () => pickFromLibrary(onAttach) },
+        { text: i18n.t('attachment.document'), onPress: () => pickDocument(onAttach) },
       ]);
     }
   };

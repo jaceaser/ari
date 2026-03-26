@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
+import { useTranslations } from "next-intl";
 import { Button } from "@/components/ui/button";
 
 type BillingStatus = {
@@ -33,6 +34,7 @@ export default function BillingPage() {
   const [loading, setLoading] = useState(true);
   const success = searchParams.get("success");
   const canceled = searchParams.get("canceled");
+  const t = useTranslations("billing");
 
   useEffect(() => {
     fetch("/api/billing/status")
@@ -44,42 +46,42 @@ export default function BillingPage() {
 
   return (
     <div className="mx-auto flex h-dvh max-w-lg flex-col items-center justify-center gap-6 px-4">
-      <h1 className="text-2xl font-semibold">Billing</h1>
+      <h1 className="text-2xl font-semibold">{t("title")}</h1>
 
       {success && (
         <div className="rounded-md bg-green-500/10 px-4 py-3 text-sm text-green-600">
-          Subscription activated successfully!
+          {t("successMessage")}
         </div>
       )}
 
       {canceled && (
         <div className="rounded-md bg-yellow-500/10 px-4 py-3 text-sm text-yellow-600">
-          Checkout was canceled. You can try again when ready.
+          {t("canceledMessage")}
         </div>
       )}
 
       {loading ? (
         <p className="text-sm text-muted-foreground">
-          Loading billing info...
+          {t("loading")}
         </p>
       ) : billing?.active ? (
         <div className="flex w-full flex-col gap-4 rounded-lg border p-6">
           <div className="flex items-center justify-between">
-            <span className="text-sm text-muted-foreground">Status</span>
+            <span className="text-sm text-muted-foreground">{t("status")}</span>
             <span className="rounded-full bg-green-500/10 px-3 py-1 text-sm font-medium text-green-600">
-              Active
+              {t("active")}
             </span>
           </div>
           {formatPlan(billing.tier, billing.plan) && (
             <div className="flex items-center justify-between">
-              <span className="text-sm text-muted-foreground">Plan</span>
+              <span className="text-sm text-muted-foreground">{t("plan")}</span>
               <span className="text-sm font-medium">{formatPlan(billing.tier, billing.plan)}</span>
             </div>
           )}
           {billing.expires_at && (
             <div className="flex items-center justify-between">
               <span className="text-sm text-muted-foreground">
-                Next billing date
+                {t("nextBillingDate")}
               </span>
               <span className="text-sm font-medium">
                 {new Date(billing.expires_at).toLocaleDateString()}
@@ -88,25 +90,24 @@ export default function BillingPage() {
           )}
           <Button variant="outline" asChild>
             <a href="https://billing.stripe.com/p/login/aFa7sK4J91hJ5yVbxs5kk00" target="_blank" rel="noopener noreferrer">
-              Manage Subscription
+              {t("manageSubscription")}
             </a>
           </Button>
           <p className="text-xs text-muted-foreground">
-            Change your plan, update payment method, or cancel.
+            {t("manageDesc")}
           </p>
         </div>
       ) : (
         <div className="flex w-full flex-col gap-4 rounded-lg border p-6">
           <p className="text-sm text-muted-foreground">
-            You don&apos;t have an active subscription. Subscribe to unlock full
-            access.
+            {t("noSubscription")}
           </p>
           <Button
             size="lg"
             asChild
           >
             <a href="https://reilabs.ai/products/" target="_blank" rel="noopener noreferrer">
-              View Plans &amp; Subscribe
+              {t("viewPlans")}
             </a>
           </Button>
         </div>
@@ -116,7 +117,7 @@ export default function BillingPage() {
         className="text-sm text-muted-foreground underline"
         href="/"
       >
-        Back to chat
+        {t("backToChat")}
       </Link>
     </div>
   );

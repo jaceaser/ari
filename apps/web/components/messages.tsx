@@ -1,7 +1,10 @@
+"use client";
+
 import type { UseChatHelpers } from "@ai-sdk/react";
 import { ArrowDownIcon } from "lucide-react";
 import { memo, useMemo } from "react";
-import { useMessages } from "@/hooks/use-messages";
+import { useTranslations } from "next-intl";
+import { useMessages as useMessageScroll } from "@/hooks/use-messages";
 import type { Vote } from "@/lib/db/schema";
 import type { ChatMessage } from "@/lib/types";
 import { useDataStream } from "./data-stream-provider";
@@ -36,11 +39,13 @@ function PureMessages({
     isAtBottom,
     scrollToBottom,
     hasSentMessage,
-  } = useMessages({
+  } = useMessageScroll({
     status,
   });
 
   useDataStream();
+
+  const t = useTranslations("chat");
 
   return (
     <div className="relative flex-1">
@@ -89,7 +94,7 @@ function PureMessages({
       </div>
 
       <button
-        aria-label="Jump to bottom"
+        aria-label={t("jumpToBottom")}
         className={`absolute bottom-4 left-1/2 z-10 flex -translate-x-1/2 items-center gap-1.5 rounded-full border bg-background px-3 py-1.5 text-xs shadow-lg transition-all hover:bg-muted ${
           isAtBottom
             ? "pointer-events-none scale-0 opacity-0"
@@ -99,7 +104,7 @@ function PureMessages({
         type="button"
       >
         <ArrowDownIcon className="size-3.5" />
-        <span>Jump to bottom</span>
+        <span>{t("jumpToBottom")}</span>
       </button>
     </div>
   );

@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { Toaster } from "sonner";
 import { ThemeProvider } from "@/components/theme-provider";
+import { LocaleProvider } from "@/components/locale-provider";
+import { getMessages } from "next-intl/server";
 
 import "./globals.css";
 import { SessionProvider } from "next-auth/react";
@@ -80,11 +82,13 @@ const THEME_COLOR_SCRIPT = `\
   updateThemeColor();
 })();`;
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const messages = await getMessages();
+
   return (
     <html
       className={`${geist.variable} ${geistMono.variable}`}
@@ -111,7 +115,9 @@ export default function RootLayout({
           enableSystem
         >
           <Toaster position="top-center" />
-          <SessionProvider>{children}</SessionProvider>
+          <LocaleProvider serverMessages={messages}>
+            <SessionProvider>{children}</SessionProvider>
+          </LocaleProvider>
         </ThemeProvider>
       </body>
     </html>

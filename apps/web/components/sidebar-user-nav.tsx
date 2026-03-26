@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import type { User } from "next-auth";
 import { signOut, useSession } from "next-auth/react";
 import { useTheme } from "next-themes";
+import { useTranslations } from "next-intl";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -27,6 +28,7 @@ export function SidebarUserNav({ user }: { user: User }) {
   const router = useRouter();
   const { data, status } = useSession();
   const { setTheme, resolvedTheme } = useTheme();
+  const t = useTranslations("userNav");
 
   const isGuest = guestRegex.test(data?.user?.email ?? "");
   const displayEmail = data?.user?.email ?? user?.email;
@@ -41,7 +43,7 @@ export function SidebarUserNav({ user }: { user: User }) {
                 <div className="flex flex-row gap-2">
                   <div className="size-6 animate-pulse rounded-full bg-zinc-500/30" />
                   <span className="animate-pulse rounded-md bg-zinc-500/30 text-transparent">
-                    Loading auth status
+                    {t("loadingAuth")}
                   </span>
                 </div>
                 <div className="animate-spin text-zinc-500">
@@ -61,7 +63,7 @@ export function SidebarUserNav({ user }: { user: User }) {
                   width={24}
                 />
                 <span className="truncate" data-testid="user-email">
-                  {isGuest ? "Guest" : displayEmail}
+                  {isGuest ? t("guest") : displayEmail}
                 </span>
                 <ChevronUp className="ml-auto" />
               </SidebarMenuButton>
@@ -85,10 +87,10 @@ export function SidebarUserNav({ user }: { user: User }) {
               <>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem asChild className="cursor-pointer">
-                  <Link href="/settings">Account Settings</Link>
+                  <Link href="/settings">{t("accountSettings")}</Link>
                 </DropdownMenuItem>
                 <DropdownMenuItem asChild className="cursor-pointer">
-                  <Link href="/billing">Billing</Link>
+                  <Link href="/billing">{t("billing")}</Link>
                 </DropdownMenuItem>
               </>
             )}
@@ -100,8 +102,7 @@ export function SidebarUserNav({ user }: { user: User }) {
                   if (status === "loading") {
                     toast({
                       type: "error",
-                      description:
-                        "Checking authentication status, please try again!",
+                      description: t("authError"),
                     });
 
                     return;
@@ -117,7 +118,7 @@ export function SidebarUserNav({ user }: { user: User }) {
                 }}
                 type="button"
               >
-                {isGuest ? "Login to your account" : "Sign out"}
+                {isGuest ? t("login") : t("signOut")}
               </button>
             </DropdownMenuItem>
           </DropdownMenuContent>

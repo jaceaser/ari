@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useSession } from "next-auth/react";
 import { useState } from "react";
+import { useTranslations } from "next-intl";
 import { Button } from "@/components/ui/button";
 import { guestRegex } from "@/lib/constants";
 
@@ -14,6 +15,7 @@ export default function SettingsPage() {
     type: "success" | "error";
     text: string;
   } | null>(null);
+  const t = useTranslations("settings");
 
   const currentEmail = session?.user?.email ?? "";
   const isGuest = guestRegex.test(currentEmail);
@@ -36,7 +38,7 @@ export default function SettingsPage() {
       if (res.ok) {
         setMessage({
           type: "success",
-          text: "Email updated. A magic link has been sent to verify your new email.",
+          text: t("emailUpdated"),
         });
         setEmail("");
         // Refresh the session to pick up the new email
@@ -45,11 +47,11 @@ export default function SettingsPage() {
         const data = await res.json().catch(() => ({}));
         setMessage({
           type: "error",
-          text: data.error || "Failed to update email.",
+          text: data.error || t("errorUpdateEmail"),
         });
       }
     } catch {
-      setMessage({ type: "error", text: "Network error. Please try again." });
+      setMessage({ type: "error", text: t("errorNetwork") });
     } finally {
       setSaving(false);
     }
@@ -57,23 +59,23 @@ export default function SettingsPage() {
 
   return (
     <div className="mx-auto flex h-dvh max-w-lg flex-col items-center justify-center gap-6 px-4">
-      <h1 className="text-2xl font-semibold">Account Settings</h1>
+      <h1 className="text-2xl font-semibold">{t("title")}</h1>
 
       <div className="flex w-full flex-col gap-4 rounded-lg border p-6">
         <div className="flex items-center justify-between">
-          <span className="text-sm text-muted-foreground">Current email</span>
+          <span className="text-sm text-muted-foreground">{t("currentEmail")}</span>
           <span className="text-sm font-medium">
-            {isGuest ? "Guest (no email)" : currentEmail}
+            {isGuest ? t("guestEmail") : currentEmail}
           </span>
         </div>
 
         {isGuest ? (
           <p className="text-sm text-muted-foreground">
-            You&apos;re using a guest account.{" "}
+            {t("guestNotice")}{" "}
             <Link className="underline" href="/login">
-              Log in with your email
+              {t("loginToSave")}
             </Link>{" "}
-            to save your data across sessions.
+            {t("loginToSaveDesc")}
           </p>
         ) : (
           <form className="flex flex-col gap-3" onSubmit={handleEmailUpdate}>
@@ -81,19 +83,19 @@ export default function SettingsPage() {
               className="text-sm font-medium"
               htmlFor="new-email"
             >
-              Change email
+              {t("changeEmail")}
             </label>
             <input
               autoComplete="email"
               className="rounded-md border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
               id="new-email"
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="new-email@example.com"
+              placeholder={t("emailPlaceholder")}
               type="email"
               value={email}
             />
             <Button disabled={saving || !email.trim()} type="submit">
-              {saving ? "Updating..." : "Update Email"}
+              {saving ? t("updating") : t("updateEmail")}
             </Button>
           </form>
         )}
@@ -115,7 +117,7 @@ export default function SettingsPage() {
         className="text-sm text-muted-foreground underline"
         href="/"
       >
-        Back to chat
+        {t("backToChat")}
       </Link>
     </div>
   );

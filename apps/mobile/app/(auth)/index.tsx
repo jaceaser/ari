@@ -8,10 +8,12 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
+import { useTranslation } from 'react-i18next';
 import { useColors } from '../../lib/theme-context';
 import { ColorTokens } from '../../lib/colors';
 
 export default function WelcomeScreen() {
+  const { t } = useTranslation();
   const router = useRouter();
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -28,7 +30,7 @@ export default function WelcomeScreen() {
             <Text style={styles.logoLetter}>A</Text>
           </View>
           <Text style={styles.wordmark}>ARI</Text>
-          <Text style={styles.tagline}>Real estate intelligence{'\n'}at your fingertips</Text>
+          <Text style={styles.tagline}>{t('home.sub')}</Text>
         </View>
 
         <View style={styles.actions}>
@@ -37,7 +39,7 @@ export default function WelcomeScreen() {
             onPress={() => router.push('/(auth)/login')}
             activeOpacity={0.85}
           >
-            <Text style={styles.primaryButtonText}>Sign In</Text>
+            <Text style={styles.primaryButtonText}>{t('auth.signIn')}</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -45,7 +47,7 @@ export default function WelcomeScreen() {
             onPress={handleSubscribe}
             activeOpacity={0.85}
           >
-            <Text style={styles.secondaryButtonText}>Subscribe</Text>
+            <Text style={styles.secondaryButtonText}>{t('auth.subscribe')}</Text>
           </TouchableOpacity>
         </View>
       </View>

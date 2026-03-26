@@ -1,0 +1,75 @@
+{
+  "home": {
+    "greeting": "¿En qué puedo ayudarte?",
+    "sub": "Inteligencia inmobiliaria al alcance de tu mano",
+    "suggestion1": "Dame una lista de propietarios cansados en Dallas, TX",
+    "suggestion2": "Encuentra compradores en efectivo para una casa 3/2 en Houston, TX",
+    "suggestion3": "Busca comparables para 123 Main St, Atlanta, GA",
+    "suggestion4": "Redacta un contrato de compra para una operación de venta al por mayor"
+  },
+  "chat": {
+    "defaultTitle": "Chat",
+    "placeholder": "Escribe un mensaje a ARI",
+    "tryAgain": "Intentar de nuevo"
+  },
+  "settings": {
+    "title": "Cuenta",
+    "subscriptionSection": "SUSCRIPCIÓN",
+    "manageSubscription": "Gestionar suscripción",
+    "accountSection": "CUENTA",
+    "signOut": "Cerrar sesión",
+    "signOutConfirmTitle": "Cerrar sesión",
+    "signOutConfirmMessage": "¿Estás seguro de que quieres cerrar sesión?",
+    "signOutConfirmCancel": "Cancelar",
+    "signOutConfirmAction": "Cerrar sesión"
+  },
+  "auth": {
+    "signIn": "Iniciar sesión",
+    "subscribe": "Suscribirse",
+    "signInTitle": "Iniciar sesión",
+    "signInSubtitle": "Ingresa tu correo para recibir un enlace mágico",
+    "emailPlaceholder": "tú@ejemplo.com",
+    "sendLink": "Enviar enlace mágico",
+    "checkEmail": "Revisa tu correo",
+    "sendingLink": "Enviando enlace a {{email}}...",
+    "linkSentMessage": "Si tienes una suscripción activa, un enlace de acceso está en camino a",
+    "linkSentSuffix": "Toca el enlace en tu correo para iniciar sesión al instante.",
+    "rateLimited": "Demasiadas solicitudes. Por favor espera un momento antes de intentarlo de nuevo.",
+    "sendError": "No se pudo enviar el enlace.",
+    "tryAgain": "Intentar de nuevo",
+    "pasteToken": "o pega tu token",
+    "tokenPlaceholder": "Pega el token del enlace de correo",
+    "signInWithToken": "Iniciar sesión con token",
+    "noSubscription": "¿No tienes una suscripción?",
+    "subscribeHere": "Suscríbete aquí",
+    "differentEmail": "Usar un correo diferente",
+    "invalidEmailTitle": "Correo inválido",
+    "invalidEmailMessage": "Por favor ingresa una dirección de correo válida."
+  },
+  "sidebar": {
+    "noConversations": "No hay conversaciones aún",
+    "accountSettings": "Cuenta y Configuración"
+  },
+  "offline": {
+    "banner": "Sin conexión a internet"
+  },
+  "attachment": {
+    "permissionTitle": "Permiso requerido",
+    "cameraPermission": "Se necesita acceso a la cámara para tomar fotos.",
+    "libraryPermission": "Se necesita acceso a la galería de fotos.",
+    "actionSheetTitle": "Adjuntar archivo",
+    "actionSheetSubtitle": "Elegir fuente",
+    "cancel": "Cancelar",
+    "camera": "Cámara",
+    "takePhoto": "Tomar foto",
+    "photoLibrary": "Galería de fotos",
+    "document": "Documento (PDF / Word)"
+  },
+  "errors": {
+    "network": "No se pudo conectar a ARI. Verifica tu conexión a internet.",
+    "unauthorized": "Tu sesión ha expirado. Por favor inicia sesión de nuevo.",
+    "rateLimit": "Demasiadas solicitudes. Por favor espera un momento e intenta de nuevo.",
+    "server": "Algo salió mal de nuestro lado. Por favor intenta de nuevo.",
+    "generic": "Algo salió mal. Por favor intenta de nuevo."
+  }
+}

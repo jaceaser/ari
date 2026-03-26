@@ -15,6 +15,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as Crypto from 'expo-crypto';
 import { useQueryClient } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
 import { ChatBubble } from '../../components/ChatBubble';
 import { ChatInput } from '../../components/ChatInput';
 import { ChatHeader } from '../../components/ChatHeader';
@@ -24,16 +25,10 @@ import { createSession, Attachment } from '../../lib/api';
 import { useColors } from '../../lib/theme-context';
 import { ColorTokens } from '../../lib/colors';
 
-const SUGGESTIONS = [
-  'Get me a list of tired landlords in Dallas, TX',
-  'Find cash buyers for a 3/2 in Houston, TX',
-  'Pull comps for 123 Main St, Atlanta, GA',
-  'Draft a purchase agreement for a wholesale deal',
-];
-
 const AT_BOTTOM_THRESHOLD = 50;
 
 export default function NewChatScreen() {
+  const { t } = useTranslation();
   const [sessionId] = useState(() => Crypto.randomUUID());
   const sessionCreatedRef = useRef(false);
   const { messages, streaming, sendMessage, stopStreaming, retry } = useChatStream(sessionId);
@@ -42,6 +37,12 @@ export default function NewChatScreen() {
   const queryClient = useQueryClient();
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
+  const SUGGESTIONS = useMemo(() => [
+    t('home.suggestion1'),
+    t('home.suggestion2'),
+    t('home.suggestion3'),
+    t('home.suggestion4'),
+  ], [t]);
   const showBtnRef = useRef(false);
   const scrollBtnOpacity = useRef(new Animated.Value(0)).current;
   const contentHeightRef = useRef(0);
@@ -118,8 +119,8 @@ export default function NewChatScreen() {
               <View style={styles.logoCircle}>
                 <Text style={styles.logoText}>A</Text>
               </View>
-              <Text style={styles.greeting}>How can I help you?</Text>
-              <Text style={styles.greetingSub}>Real estate intelligence at your fingertips</Text>
+              <Text style={styles.greeting}>{t('home.greeting')}</Text>
+              <Text style={styles.greetingSub}>{t('home.sub')}</Text>
             </View>
             <View style={styles.suggestions}>
               {SUGGESTIONS.map((s) => (

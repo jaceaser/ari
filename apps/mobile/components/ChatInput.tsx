@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { useTranslation } from 'react-i18next';
 import { Attachment } from '../lib/api';
 import { AttachmentButton } from './AttachmentButton';
 import { useColors } from '../lib/theme-context';
@@ -24,6 +25,7 @@ type Props = {
 };
 
 export function ChatInput({ onSend, onStop, disabled, streaming }: Props) {
+  const { t } = useTranslation();
   const [text, setText] = useState('');
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const colors = useColors();
@@ -86,7 +88,7 @@ export function ChatInput({ onSend, onStop, disabled, streaming }: Props) {
           style={styles.input}
           value={text}
           onChangeText={setText}
-          placeholder="Message ARI"
+          placeholder={t('chat.placeholder')}
           placeholderTextColor={colors.mutedForeground}
           multiline
           maxLength={4000}

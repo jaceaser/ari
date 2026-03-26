@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { Animated, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useTranslation } from 'react-i18next';
 import { useColors } from '../lib/theme-context';
 
 type Props = {
@@ -8,6 +9,7 @@ type Props = {
 };
 
 export function OfflineBanner({ visible }: Props) {
+  const { t } = useTranslation();
   const colors = useColors();
   const translateY = useRef(new Animated.Value(-50)).current;
 
@@ -33,7 +35,7 @@ export function OfflineBanner({ visible }: Props) {
     >
       <View style={styles.inner}>
         <Ionicons name="cloud-offline-outline" size={15} color="#fff" style={{ marginRight: 6 }} />
-        <Text style={styles.text}>No internet connection</Text>
+        <Text style={styles.text}>{t('offline.banner')}</Text>
       </View>
     </Animated.View>
   );

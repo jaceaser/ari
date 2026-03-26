@@ -1,3 +1,4 @@
+import '../lib/i18n';
 import '../global.css';
 import { useEffect, useRef, useState } from 'react';
 import { Stack } from 'expo-router';

@@ -19,12 +19,14 @@ import { useChatStream } from '../../../hooks/useChatStream';
 import { useNetworkStatus } from '../../../hooks/useNetworkStatus';
 import { getMessages, getSession, Attachment } from '../../../lib/api';
 import { useQuery } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
 import { useColors } from '../../../lib/theme-context';
 import { ColorTokens } from '../../../lib/colors';
 
 const AT_BOTTOM_THRESHOLD = 50;
 
 export default function ChatScreen() {
+  const { t } = useTranslation();
   const { id } = useLocalSearchParams<{ id: string }>();
   const listRef = useRef<FlatList>(null);
   const colors = useColors();
@@ -102,7 +104,7 @@ export default function ChatScreen() {
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
       <SafeAreaView style={styles.flex} edges={['top', 'left', 'right']}>
-        <ChatHeader title={session?.title ?? 'Chat'} showBack />
+        <ChatHeader title={session?.title ?? t('chat.defaultTitle')} showBack />
 
         <View style={styles.flex}>
           {isLoading ? (

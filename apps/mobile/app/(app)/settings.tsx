@@ -11,6 +11,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
 import { Ionicons } from '@expo/vector-icons';
+import { useTranslation } from 'react-i18next';
 import { clearAuth, isAuthenticated } from '../../lib/auth';
 import { getUserProfile } from '../../lib/api';
 import type { UserProfile } from '../../lib/api';
@@ -18,6 +19,7 @@ import { useColors } from '../../lib/theme-context';
 import { ColorTokens } from '../../lib/colors';
 
 export default function SettingsScreen() {
+  const { t } = useTranslation();
   const router = useRouter();
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const colors = useColors();
@@ -34,10 +36,10 @@ export default function SettingsScreen() {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSignOut = () => {
-    Alert.alert('Sign out', 'Are you sure you want to sign out?', [
-      { text: 'Cancel', style: 'cancel' },
+    Alert.alert(t('settings.signOutConfirmTitle'), t('settings.signOutConfirmMessage'), [
+      { text: t('settings.signOutConfirmCancel'), style: 'cancel' },
       {
-        text: 'Sign out',
+        text: t('settings.signOutConfirmAction'),
         style: 'destructive',
         onPress: async () => {
           await clearAuth();
@@ -61,7 +63,7 @@ export default function SettingsScreen() {
         <TouchableOpacity style={styles.headerBtn} onPress={() => router.back()}>
           <Ionicons name="chevron-back" size={24} color={colors.foreground} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Account</Text>
+        <Text style={styles.headerTitle}>{t('settings.title')}</Text>
         <View style={styles.headerBtn} />
       </View>
 
@@ -80,19 +82,19 @@ export default function SettingsScreen() {
           </View>
         </View>
 
-        <Text style={styles.sectionLabel}>SUBSCRIPTION</Text>
+        <Text style={styles.sectionLabel}>{t('settings.subscriptionSection')}</Text>
         <View style={styles.card}>
           <RowItem
             icon="card-outline"
-            label="Manage subscription"
+            label={t('settings.manageSubscription')}
             onPress={handleManageBilling}
             colors={colors}
           />
         </View>
 
-        <Text style={styles.sectionLabel}>ACCOUNT</Text>
+        <Text style={styles.sectionLabel}>{t('settings.accountSection')}</Text>
         <View style={styles.card}>
-          <RowItem icon="log-out-outline" label="Sign out" onPress={handleSignOut} colors={colors} danger />
+          <RowItem icon="log-out-outline" label={t('settings.signOut')} onPress={handleSignOut} colors={colors} danger />
         </View>
       </ScrollView>
     </SafeAreaView>

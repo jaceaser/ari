@@ -767,7 +767,9 @@ _LEAD_TYPE_KEYWORDS: dict[str, list[str]] = {
     "pre-foreclosure": ["pre-foreclosure", "preforeclosure", "pre foreclosure", "auction", "lis pendens"],
     "fixer-upper": ["fixer", "fixer-upper", "fixer upper", "rehab", "wholesale", "distressed"],
     "as-is": ["as-is", "as is"],
-    "tired-landlords": ["tired landlord", "landlord", "rental", "absentee owner", "absentee"],
+    "tired-landlords": ["tired landlord", "landlord", "rental", "absentee owner", "absentee",
+                        "propietarios cansados", "propietario cansado", "dueños cansados",
+                        "propietarios ausentes", "arrendadores cansados"],
     "subject-to": ["subject to", "subject-to", "subto", "sub to", "sub2"],
     "land": ["land", "lot", "vacant land", "acreage"],
     "agent-owned": [
@@ -1588,8 +1590,16 @@ async def tool_leads():
             payload["data_source"] = result.get("source", "scrape")
             payload["message"] = result.get("message", "")
 
-            # If we have an excel link, inject it into the system prompt
-            # so the model MUST include it in its response
+            # URL suppression is always active — model must never expose source URLs
+            url_suppression = (
+                "\n\nCRITICAL: NEVER show the Zillow search URL or any internal source URL "
+                "used to generate this list. "
+                "\n\nURL FORMATTING: NEVER display raw Zillow URLs as plain text. "
+                "Always format property links as markdown hyperlinks with friendly text, "
+                'e.g. [View Property](https://www.zillow.com/...) or '
+                '[Property Details](https://www.zillow.com/...). '
+            )
+
             excel_link = result.get("excel_link", "")
             count = result.get("properties_count", 0)
             if excel_link and count:
@@ -1600,26 +1610,24 @@ async def tool_leads():
                     f"the property list:\n"
                     f"📥 **[Download Full List ({count} properties)]({excel_link})**\n"
                     f"Do NOT omit this link. The user expects to download the Excel file."
-                    f"\n\nCRITICAL: NEVER show the Zillow search URL or any source URL "
-                    f"used to generate this list. "
-                    f"\n\nURL FORMATTING: NEVER display raw Zillow URLs as plain text. "
-                    f"Always format property links as markdown hyperlinks with friendly text, "
-                    f'e.g. [View Property](https://www.zillow.com/...) or '
-                    f'[Property Details](https://www.zillow.com/...). '
+                    + url_suppression +
                     f"The download link should also use markdown: "
                     f"[Download Full List ({count} properties)]({excel_link})"
                 )
+            else:
+                payload["route_system_prompt"] = (
+                    payload.get("route_system_prompt", "") + url_suppression
+                )
 
-            # Save source URL for debug logging (not exposed to model)
-            payload["_source_url"] = scrape_url
-            payload["_city"] = _debug_city
-            payload["_state"] = _debug_state
-            payload["_lead_type"] = _debug_lead_type
-
-            # Strip source URLs from payload so model never sees them
+            # Strip ALL source/debug fields — model must never see internal URLs
             payload.pop("detected_url", None)
             payload.pop("generated_url", None)
             payload.pop("lead_link_prompt", None)
+            # Do NOT include _source_url / _city / _state / _lead_type in response
+            logger.info(
+                "[leads] scrape done: city=%r state=%r lead_type=%r count=%d",
+                _debug_city, _debug_state, _debug_lead_type, count,
+            )
         except Exception as exc:
             logger.error("Leads scraping failed: %s", exc)
             payload["status"] = "error"

@@ -2,6 +2,7 @@ import React, { useMemo } from 'react';
 import { View, Text, TouchableOpacity, Image, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Markdown from 'react-native-markdown-display';
+import { useTranslation } from 'react-i18next';
 import { useColors } from '../lib/theme-context';
 import { ColorTokens } from '../lib/colors';
 import { TypingIndicator } from './TypingIndicator';
@@ -17,6 +18,7 @@ type Props = {
 };
 
 export function ChatBubble({ role, text, streaming, isError, onRetry, images, docs }: Props) {
+  const { t } = useTranslation();
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const mdStyles = useMemo(() => makeMarkdownStyles(colors), [colors]);
@@ -63,7 +65,7 @@ export function ChatBubble({ role, text, streaming, isError, onRetry, images, do
           {onRetry && (
             <TouchableOpacity style={styles.retryBtn} onPress={onRetry} activeOpacity={0.7}>
               <Ionicons name="refresh" size={13} color={colors.primary} style={{ marginRight: 4 }} />
-              <Text style={[styles.retryText, { color: colors.primary }]}>Try again</Text>
+              <Text style={[styles.retryText, { color: colors.primary }]}>{t('chat.tryAgain')}</Text>
             </TouchableOpacity>
           )}
         </View>

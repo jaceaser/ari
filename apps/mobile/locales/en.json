@@ -1,0 +1,75 @@
+{
+  "home": {
+    "greeting": "How can I help you?",
+    "sub": "Real estate intelligence at your fingertips",
+    "suggestion1": "Get me a list of tired landlords in Dallas, TX",
+    "suggestion2": "Find cash buyers for a 3/2 in Houston, TX",
+    "suggestion3": "Pull comps for 123 Main St, Atlanta, GA",
+    "suggestion4": "Draft a purchase agreement for a wholesale deal"
+  },
+  "chat": {
+    "defaultTitle": "Chat",
+    "placeholder": "Message ARI",
+    "tryAgain": "Try again"
+  },
+  "settings": {
+    "title": "Account",
+    "subscriptionSection": "SUBSCRIPTION",
+    "manageSubscription": "Manage subscription",
+    "accountSection": "ACCOUNT",
+    "signOut": "Sign out",
+    "signOutConfirmTitle": "Sign out",
+    "signOutConfirmMessage": "Are you sure you want to sign out?",
+    "signOutConfirmCancel": "Cancel",
+    "signOutConfirmAction": "Sign out"
+  },
+  "auth": {
+    "signIn": "Sign In",
+    "subscribe": "Subscribe",
+    "signInTitle": "Sign in",
+    "signInSubtitle": "Enter your email to receive a magic link",
+    "emailPlaceholder": "you@example.com",
+    "sendLink": "Send magic link",
+    "checkEmail": "Check your email",
+    "sendingLink": "Sending link to {{email}}...",
+    "linkSentMessage": "If you have an active subscription, a sign-in link is on its way to",
+    "linkSentSuffix": "Tap the link in your email to sign in instantly.",
+    "rateLimited": "Too many requests. Please wait a moment before trying again.",
+    "sendError": "Couldn't send the link.",
+    "tryAgain": "Try again",
+    "pasteToken": "or paste your token",
+    "tokenPlaceholder": "Paste token from email link",
+    "signInWithToken": "Sign in with token",
+    "noSubscription": "Don't have a subscription?",
+    "subscribeHere": "Subscribe here",
+    "differentEmail": "Use a different email",
+    "invalidEmailTitle": "Invalid email",
+    "invalidEmailMessage": "Please enter a valid email address."
+  },
+  "sidebar": {
+    "noConversations": "No conversations yet",
+    "accountSettings": "Account & Settings"
+  },
+  "offline": {
+    "banner": "No internet connection"
+  },
+  "attachment": {
+    "permissionTitle": "Permission required",
+    "cameraPermission": "Camera access is needed to take photos.",
+    "libraryPermission": "Photo library access is needed.",
+    "actionSheetTitle": "Attach file",
+    "actionSheetSubtitle": "Choose source",
+    "cancel": "Cancel",
+    "camera": "Camera",
+    "takePhoto": "Take Photo",
+    "photoLibrary": "Photo Library",
+    "document": "Document (PDF / Word)"
+  },
+  "errors": {
+    "network": "Couldn't connect to ARI. Check your internet connection.",
+    "unauthorized": "Your session has expired. Please sign in again.",
+    "rateLimit": "Too many requests. Please wait a moment and try again.",
+    "server": "Something went wrong on our end. Please try again.",
+    "generic": "Something went wrong. Please try again."
+  }
+}

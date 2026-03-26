@@ -15,6 +15,7 @@ import {
 } from "react";
 import { toast } from "sonner";
 import { useLocalStorage, useWindowSize } from "usehooks-ts";
+import { useTranslations } from "next-intl";
 import type { Attachment, ChatMessage } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import {
@@ -59,6 +60,7 @@ function PureMultimodalInput({
 }) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const { width } = useWindowSize();
+  const t = useTranslations("chat");
 
   const adjustHeight = useCallback(() => {
     if (textareaRef.current) {
@@ -179,9 +181,9 @@ function PureMultimodalInput({
       const { error } = await response.json();
       toast.error(error);
     } catch (_error) {
-      toast.error("Failed to upload file, please try again!");
+      toast.error(t("uploadFailed"));
     }
-  }, []);
+  }, [t]);
 
   const handleFileChange = useCallback(
     async (event: ChangeEvent<HTMLInputElement>) => {
@@ -249,12 +251,12 @@ function PureMultimodalInput({
         ]);
       } catch (error) {
         console.error("Error uploading pasted images:", error);
-        toast.error("Failed to upload pasted image(s)");
+        toast.error(t("uploadPasteFailed"));
       } finally {
         setUploadQueue([]);
       }
     },
-    [setAttachments, uploadFile]
+    [setAttachments, uploadFile, t]
   );
 
   // Add paste event listener to textarea
@@ -298,7 +300,7 @@ function PureMultimodalInput({
             return;
           }
           if (status !== "ready") {
-            toast.error("Please wait for the model to finish its response!");
+            toast.error(t("waitForModel"));
           } else {
             submitForm();
           }
@@ -345,7 +347,7 @@ function PureMultimodalInput({
             maxHeight={200}
             minHeight={44}
             onChange={handleInput}
-            placeholder="Send a message..."
+            placeholder={t("sendMessage")}
             ref={textareaRef}
             rows={1}
             value={input}

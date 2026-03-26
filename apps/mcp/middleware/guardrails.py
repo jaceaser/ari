@@ -133,6 +133,24 @@ _CORE_SIGNALS: list[re.Pattern[str]] = [
         r"free\s+and\s+clear",
         r"hud\s+homes?",
         r"county\s+(leads?|list|properties)",
+        # Spanish equivalents — so Spanish-language queries pass the intent guard
+        r"propietarios?\s+cansados?",   # tired landlords
+        r"propietarios?\s+ausentes?",   # absentee owners
+        r"propiedades?\s+vacantes?",    # vacant properties
+        r"vendedores?\s+motivados?",    # motivated sellers
+        r"ejecuciones?\s+hipotecarias?",# foreclosures
+        r"pre[\s\-]ejecuci[oó]n",      # pre-foreclosure
+        r"due[ñn]os?\s+cansados?",      # tired owners
+        r"lista\s+de\s+(propietarios?|vendedores?|propiedades?|leads?)",
+        r"dame\s+(una\s+)?lista",       # give me a list
+        r"d[aá]me\s+(una\s+)?lista",
+        r"compradores?\s+(en\s+efectivo|inversionistas?)",  # cash buyers
+        r"compradores?\s+de\s+(efectivo|contado)",
+        r"comparables?",                # comps
+        r"valor\s+(de\s+)?despu[eé]s\s+de\s+reparaciones?",  # ARV
+        r"propiedades?\s+en\s+remate",  # foreclosure properties
+        r"banco\s+due[ñn]o",            # bank owned
+        r"abogados?\s+de\s+bienes\s+ra[ií]ces?",  # real estate attorneys
     ]
 ]
 

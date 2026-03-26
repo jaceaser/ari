@@ -8,6 +8,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import useSWR, { useSWRConfig } from "swr";
 import { unstable_serialize } from "swr/infinite";
+import { useTranslations } from "next-intl";
 import { ChatHeader } from "@/components/chat-header";
 import { Button } from "@/components/ui/button";
 import {
@@ -49,6 +50,7 @@ export function Chat({
   autoResume: boolean;
 }) {
   const router = useRouter();
+  const t = useTranslations("chat");
 
   const { visibilityType } = useChatVisibility({
     chatId: id,
@@ -191,9 +193,9 @@ export function Chat({
           {isReadonly ? (
             <div className="flex w-full items-center justify-center gap-3 py-4 text-sm text-muted-foreground">
               <LockIcon className="size-4" />
-              <span>This session is read-only</span>
+              <span>{t("readOnly")}</span>
               <Button asChild variant="default" size="sm">
-                <Link href="/">Start New Chat</Link>
+                <Link href="/">{t("startNewChat")}</Link>
               </Button>
             </div>
           ) : (

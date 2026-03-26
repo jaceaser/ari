@@ -1,10 +1,12 @@
 "use client";
 
 import { useState } from "react";
+import { useTranslations } from "next-intl";
 import { Button } from "@/components/ui/button";
 
 export function Paywall() {
   const [loading, setLoading] = useState(false);
+  const t = useTranslations("paywall");
 
   const handleSubscribe = async () => {
     setLoading(true);
@@ -23,13 +25,12 @@ export function Paywall() {
 
   return (
     <div className="flex flex-col items-center gap-4 rounded-xl border bg-background p-8 text-center shadow-sm">
-      <h3 className="font-semibold text-lg">Subscription Required</h3>
+      <h3 className="font-semibold text-lg">{t("title")}</h3>
       <p className="max-w-sm text-muted-foreground text-sm">
-        An active subscription is required to continue chatting. Subscribe to
-        unlock unlimited access.
+        {t("desc")}
       </p>
       <Button onClick={handleSubscribe} disabled={loading}>
-        {loading ? "Redirecting..." : "Subscribe to continue"}
+        {loading ? t("redirecting") : t("subscribe")}
       </Button>
     </div>
   );

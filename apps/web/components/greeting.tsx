@@ -1,6 +1,11 @@
+"use client";
+
 import { motion } from "framer-motion";
+import { useTranslations } from "next-intl";
 
 export const Greeting = () => {
+  const t = useTranslations("greeting");
+
   return (
     <div
       className="mx-auto mt-4 flex size-full max-w-3xl flex-col items-center justify-center px-4 md:mt-16 md:px-8"
@@ -26,7 +31,7 @@ export const Greeting = () => {
         initial={{ opacity: 0, y: 10 }}
         transition={{ delay: 0.5 }}
       >
-        Welcome to ARI
+        {t("welcome")}
       </motion.div>
       <motion.div
         animate={{ opacity: 1, y: 0 }}
@@ -35,7 +40,7 @@ export const Greeting = () => {
         initial={{ opacity: 0, y: 10 }}
         transition={{ delay: 0.6 }}
       >
-        Ask ARI anything about Real Estate Investing and taking deals down!
+        {t("subtitle")}
       </motion.div>
     </div>
   );
