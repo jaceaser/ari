@@ -553,27 +553,39 @@ def _extract_city_state(text: str) -> tuple[Optional[str], Optional[str]]:
     if not text:
         return None, None
 
-    # Preposition-anchored extraction: "in {city}, {state}"
-    # This avoids capturing the entire sentence before the comma
+    # Preposition-anchored extraction: English "in" OR Spanish "en"
+    # NOTE: The character class [A-Za-z .'-] does NOT match digits or slashes.
+    # This means "en efectivo para una casa 3/2 en Houston, TX" cannot lazily match
+    # from the first "en" all the way through "3/2" to "Houston" — the regex stalls
+    # at the digit boundary and retries from the second "en", correctly extracting Houston.
     match = re.search(
-        r"\bin\s+([A-Za-z][A-Za-z .'-]{1,60}?),\s*([A-Za-z]{2})\b",
+        r"\b(?:in|en)\s+([A-Za-z][A-Za-z .'-]{1,60}?),\s*([A-Za-z]{2})\b",
         text, re.IGNORECASE,
     )
     if match:
-        return match.group(1).strip(), _normalize_state(match.group(2))
+        city_candidate = match.group(1).strip()
+        # Strip leading Spanish/English prepositions that may have been captured
+        # e.g., "en Houston" → first word "en" is a preposition → return "Houston"
+        _PREPOSITIONS = {"en", "in", "de", "del", "para", "a", "al", "la", "el",
+                         "los", "las", "por", "con", "sobre"}
+        parts = city_candidate.split()
+        while parts and parts[0].lower() in _PREPOSITIONS:
+            parts = parts[1:]
+        if parts:
+            return " ".join(parts), _normalize_state(match.group(2))
 
-    # "in {city}, {full state name}"
+    # "in/en {city}, {full state name}"
     match = re.search(
-        r"\bin\s+([A-Za-z][A-Za-z .'-]{1,60}?),\s*"
+        r"\b(?:in|en)\s+([A-Za-z][A-Za-z .'-]{1,60}?),\s*"
         r"(Alabama|Alaska|Arizona|Arkansas|California|Colorado|Connecticut|Delaware|Florida|Georgia|Hawaii|Idaho|Illinois|Indiana|Iowa|Kansas|Kentucky|Louisiana|Maine|Maryland|Massachusetts|Michigan|Minnesota|Mississippi|Missouri|Montana|Nebraska|Nevada|New Hampshire|New Jersey|New Mexico|New York|North Carolina|North Dakota|Ohio|Oklahoma|Oregon|Pennsylvania|Rhode Island|South Carolina|South Dakota|Tennessee|Texas|Utah|Vermont|Virginia|Washington|West Virginia|Wisconsin|Wyoming)\b",
         text, re.IGNORECASE,
     )
     if match:
         return match.group(1).strip(), _normalize_state(match.group(2))
 
-    # "for/near/around {city}, {state}"
+    # "for/near/around/para {city}, {state}"
     match = re.search(
-        r"\b(?:for|near|around)\s+([A-Za-z][A-Za-z .'-]{1,60}?),\s*([A-Za-z]{2})\b",
+        r"\b(?:for|near|around|para)\s+([A-Za-z][A-Za-z .'-]{1,60}?),\s*([A-Za-z]{2})\b",
         text, re.IGNORECASE,
     )
     if match:
@@ -587,10 +599,21 @@ def _extract_city_state(text: str) -> tuple[Optional[str], Optional[str]]:
     if match:
         # Reject if the captured "city" looks like a full sentence (has common verbs/articles)
         city_candidate = match.group(1).strip()
-        noise_words = {"can", "get", "find", "show", "list", "give", "what", "the", "a", "me", "i"}
+        noise_words = {
+            "can", "get", "find", "show", "list", "give", "what", "the", "a", "me", "i",
+            # Spanish prepositions/articles that shouldn't start a city name
+            "en", "para", "de", "del", "una", "un", "los", "las", "el", "la",
+            "con", "por", "sobre", "desde", "hacia", "busca", "dame", "encuentra",
+        }
         first_word = city_candidate.split()[0].lower()
         if first_word not in noise_words:
             return city_candidate, _normalize_state(match.group(2))
+        # Try stripping the leading noise/preposition word (e.g., "en Houston" → "Houston")
+        stripped = " ".join(city_candidate.split()[1:]).strip()
+        if stripped and stripped[0].isalpha():
+            stripped_first = stripped.split()[0].lower()
+            if stripped_first not in noise_words:
+                return stripped, _normalize_state(match.group(2))
 
     # Preposition-anchored no-comma: "in {city} {state}" or "in {city} {full state}"
     match = re.search(
@@ -619,7 +642,12 @@ def _extract_city_state(text: str) -> tuple[Optional[str], Optional[str]]:
     if match:
         city_candidate = match.group(1).strip()
         state_candidate = _normalize_state(match.group(2))
-        noise_words = {"can", "get", "find", "show", "list", "give", "what", "the", "a", "me", "i", "in", "for", "near", "around"}
+        noise_words = {
+            "can", "get", "find", "show", "list", "give", "what", "the", "a", "me", "i",
+            "in", "for", "near", "around",
+            "en", "para", "de", "del", "una", "un", "los", "las", "el", "la",
+            "busca", "dame", "encuentra",
+        }
         first_word = city_candidate.split()[0].lower()
         _VALID_STATES = {
             "AL","AK","AZ","AR","CA","CO","CT","DE","FL","GA","HI","ID","IL","IN","IA",
@@ -1245,6 +1273,24 @@ async def _fetch_buyers_from_cosmos(city: str, state: str, sample_size: int = 50
             database = cosmos_client.get_database_client(database_name)
             container = database.get_container_client(container_name)
 
+            # Diagnostic: fetch one record to understand actual schema
+            try:
+                diag_iter = container.query_items(
+                    query="SELECT TOP 1 * FROM c",
+                    max_item_count=1,
+                )
+                async for diag_item in diag_iter:
+                    schema_keys = [k for k in diag_item.keys() if not k.startswith("_")]
+                    logger.info(
+                        "[buyers] schema sample — keys=%s cities=%r state=%r",
+                        schema_keys,
+                        diag_item.get("cities") or diag_item.get("city") or diag_item.get("Cities") or diag_item.get("City"),
+                        diag_item.get("state") or diag_item.get("State") or diag_item.get("stateCode"),
+                    )
+                    break
+            except Exception as diag_exc:
+                logger.warning("[buyers] diagnostic query failed: %s", diag_exc)
+
             try:
                 buyers, total_count, offset = await _query_buyers(
                     container_client=container,
@@ -1254,7 +1300,8 @@ async def _fetch_buyers_from_cosmos(city: str, state: str, sample_size: int = 50
                     use_partition_key=True,
                 )
                 query_mode = "partition_key"
-            except Exception:
+            except Exception as qe:
+                logger.warning("[buyers] partition_key query failed (%s), trying cross-partition", qe)
                 buyers, total_count, offset = await _query_buyers(
                     container_client=container,
                     city=city,
@@ -1375,13 +1422,23 @@ def _generate_buyers_excel(
 
 async def _buyers_payload_with_data(prompt: str, arguments: dict[str, Any]) -> dict[str, Any]:
     payload = _buyers_payload(prompt)
-    city, state = await _ai_extract_city_state(prompt)
-    # Fall back to explicit arguments if AI didn't find a location
-    if not city:
-        city = str(arguments.get("city") or "").strip() or None
-    if not state:
-        state = str(arguments.get("state") or "").strip() or None
-    source = "ai" if (city or state) else "none"
+
+    # Priority 1: explicit city/state arguments passed by the orchestration model
+    explicit_city = str(arguments.get("city") or "").strip() or None
+    explicit_state = str(arguments.get("state") or "").strip() or None
+
+    if explicit_city and explicit_state:
+        # Orchestration model extracted location — use directly
+        city, state = explicit_city, explicit_state
+        source = "arguments"
+    else:
+        # Priority 2: mini model extraction from the prompt text
+        city, state = await _ai_extract_city_state(prompt)
+        if not city:
+            city = explicit_city
+        if not state:
+            state = explicit_state
+        source = "ai" if (city or state) else "none"
     payload["city"] = city
     payload["state"] = state
     payload["location_source"] = source
