@@ -137,6 +137,12 @@ AZURE_OPENAI_DEPLOYMENT = os.getenv("AZURE_OPENAI_DEPLOYMENT") or os.getenv(
 )
 AZURE_OPENAI_API_VERSION = os.getenv("AZURE_OPENAI_API_VERSION", "2024-12-01-preview")
 AZURE_OPENAI_TIMEOUT_SECONDS = float(os.getenv("AZURE_OPENAI_TIMEOUT_SECONDS", "300"))
+AZURE_OPENAI_CLASSIFICATION_MODEL = os.getenv("AZURE_OPENAI_CLASSIFICATION_MODEL", "gpt-5-mini")
+AZURE_OPENAI_CLASSIFICATION_SYSTEM_MESSAGE = os.getenv(
+    "AZURE_OPENAI_CLASSIFICATION_SYSTEM_MESSAGE",
+    "Classify the user message into exactly one category: Leads, Buyers, Comps, Attorneys, "
+    "Strategy, Education, Contracts, OffTopic. Respond with only the category name.",
+)
 
 # Security
 FORCE_HTTPS = os.getenv("FORCE_HTTPS", "False").lower() == "true"
@@ -229,20 +235,6 @@ MCP_TOOL_DEFINITIONS: list[dict[str, Any]] = [
             "name": "mcp_integration_config",
             "description": "Read availability flags for configured backends (Azure Search, CosmosDB, Stripe, Azure OpenAI).",
             "parameters": {"type": "object", "properties": {}, "required": []},
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "mcp_classify_route",
-            "description": "Classify request into ARI route (Leads, Comps, Education, Strategy, Contracts, Buyers, Attorneys, Offtopic).",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "prompt": {"type": "string", "description": "User prompt to classify."}
-                },
-                "required": ["prompt"],
-            },
         },
     },
     {
@@ -1436,7 +1428,6 @@ _TIER_TOOLS: dict[str, frozenset[str]] = {
     "elite": _ALL_TOOL_NAMES,
     "pro": frozenset({
         "mcp_integration_config",
-        "mcp_classify_route",
         "mcp_education_context",
         "mcp_comps_context",
         "mcp_bricked_comps",
@@ -1456,7 +1447,6 @@ _TIER_TOOLS: dict[str, frozenset[str]] = {
     }),
     "basic": frozenset({
         "mcp_integration_config",
-        "mcp_classify_route",
         "mcp_education_context",
         "mcp_comps_context",
         "mcp_strategy_context",
@@ -1471,7 +1461,6 @@ _TIER_TOOLS: dict[str, frozenset[str]] = {
 # Authenticated users with no tier (signed up but not subscribed yet)
 _NO_TIER_TOOLS: frozenset[str] = frozenset({
     "mcp_integration_config",
-    "mcp_classify_route",
     "mcp_education_context",
     "mcp_offtopic_context",
 })
@@ -1554,6 +1543,110 @@ async def _get_tools_for_user(user_id: str | None = None) -> list[dict[str, Any]
     return tools
 
 
+# ---------------------------------------------------------------------------
+# Pre-loop intent classification
+# ---------------------------------------------------------------------------
+
+# Distinctive keyword sets per route. Intentionally high-signal only —
+# generic words are left out so ambiguous prompts fall through to gpt-5-mini.
+_CLASSIFY_KEYWORDS: dict[str, set[str]] = {
+    "Leads": {
+        "lead", "leads", "pre-foreclosure", "pre-foreclosures", "preforeclosure",
+        "foreclosure", "foreclosures", "foreclosed", "fsbo", "for sale by owner",
+        "tired landlord", "tired landlords", "absentee owner", "absentee owners",
+        "absentee", "motivated seller", "motivated sellers", "tax delinquent",
+        "tax lien", "probate", "lis pendens", "reo", "bank owned", "bank-owned",
+        "vacant property", "vacant properties", "high equity", "free and clear",
+        "code violation", "hud home", "hud homes", "off-market", "off market",
+        "offmarket", "landlord", "landlords", "distressed", "inherited", "inheritance",
+        "bankruptcy", "fixer upper", "fixer-upper", "subject to", "subject-to",
+        # Spanish
+        "propietarios cansados", "dueños cansados", "vendedores motivados",
+        "ejecuciones hipotecarias", "ejecución hipotecaria", "dame una lista",
+        "dame los leads", "propietarios ausentes", "propiedades vacantes",
+    },
+    "Buyers": {
+        "cash buyer", "cash buyers", "buyers list", "buyer", "buyers",
+        "investor buyer", "investor buyers", "disposition",
+        # Spanish
+        "compradores", "compradores en efectivo", "lista de compradores",
+    },
+    "Comps": {
+        "comp", "comps", "comparable", "comparables", "arv",
+        "after repair value", "after-repair value", "valuation",
+        # Spanish
+        "valor arv", "valor después de reparaciones",
+    },
+    "Attorneys": {
+        "attorney", "attorneys", "lawyer", "lawyers", "eviction attorney",
+        # Spanish
+        "abogado", "abogados",
+    },
+    "Strategy": {"strategy", "business plan", "deal flow", "roadmap"},
+    "Education": {"how to", "what is", "explain", "teach me", "guide me"},
+    "Contracts": {
+        "contract", "purchase agreement", "assignment contract",
+        "lease option", "subject to agreement",
+    },
+}
+
+# Map route label → tool hint injected into the orchestration system prompt
+_ROUTE_TOOL_HINT: dict[str, str] = {
+    "Leads": "Call mcp_leads_context immediately.",
+    "Buyers": "Call mcp_buyers_search immediately.",
+    "Comps": "Call mcp_bricked_comps immediately.",
+    "Attorneys": "Call mcp_attorneys_context immediately.",
+    "Strategy": "Call mcp_strategy_context immediately.",
+    "Education": "Call mcp_education_context immediately.",
+    "Contracts": "Call mcp_contracts_context immediately.",
+    "OffTopic": "Call mcp_offtopic_context immediately.",
+}
+
+
+async def _classify_user_intent(prompt: str) -> str | None:
+    """
+    Classify the user prompt into a route.
+
+    1. Keyword fast-path: if any route scores >= 1 keyword and there's a clear
+       winner (no tie), return immediately — zero latency.
+    2. gpt-5-mini fallback: for ambiguous or generic phrasing call the small
+       model directly. Returns None on any error so the orchestration loop
+       continues unchanged.
+    """
+    text = prompt.lower()
+
+    scores: dict[str, int] = {}
+    for route, keywords in _CLASSIFY_KEYWORDS.items():
+        scores[route] = sum(1 for kw in keywords if kw in text)
+
+    best_score = max(scores.values(), default=0)
+    if best_score >= 1:
+        # Ensure there is exactly one winner at the top score
+        winners = [r for r, s in scores.items() if s == best_score]
+        if len(winners) == 1:
+            logger.info("[classify] keyword fast-path → %s (score=%d)", winners[0], best_score)
+            return winners[0]
+
+    # Fall back to gpt-5-mini
+    try:
+        client = get_azure_client()
+        resp = await client.chat.completions.create(
+            model=AZURE_OPENAI_CLASSIFICATION_MODEL,
+            messages=[
+                {"role": "system", "content": AZURE_OPENAI_CLASSIFICATION_SYSTEM_MESSAGE},
+                {"role": "user", "content": prompt},
+            ],
+            max_completion_tokens=10,
+            temperature=0,
+        )
+        route = (resp.choices[0].message.content or "").strip()
+        logger.info("[classify] gpt-5-mini → %r", route)
+        return route if route else None
+    except Exception as exc:
+        logger.warning("[classify] gpt-5-mini failed (%s); orchestration proceeds unguided", exc)
+        return None
+
+
 async def _run_mcp_tool_orchestration(
     messages: list[dict[str, Any]],
     user_id: str | None = None,
@@ -1577,10 +1670,18 @@ async def _run_mcp_tool_orchestration(
         return messages
 
     client = get_azure_client()
-    # Prepend orchestration system prompt so the planning model knows routing rules.
-    # This is separate from the GLOBAL_SYSTEM_PROMPT which is injected for the
-    # streaming response phase.
-    orchestration_system = {"role": "system", "content": _ORCHESTRATION_SYSTEM_PROMPT}
+
+    # Pre-classify the prompt so the model skips the classify round-trip.
+    route = await _classify_user_intent(prompt)
+    route_hint = _ROUTE_TOOL_HINT.get(route or "", "")
+    orchestration_content = _ORCHESTRATION_SYSTEM_PROMPT
+    if route_hint:
+        orchestration_content += (
+            f"\n\nPRE-CLASSIFIED ROUTE: {route}\n{route_hint}"
+        )
+        logger.info("[classify] injected route=%r hint into orchestration prompt", route)
+
+    orchestration_system = {"role": "system", "content": orchestration_content}
     working_messages: list[dict[str, Any]] = [orchestration_system, *messages]
     allowed_tools = await _get_tools_for_user(user_id)
     tool_names = [t.get("function", {}).get("name") for t in allowed_tools]
