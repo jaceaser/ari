@@ -30,9 +30,6 @@ export default function LoginScreen() {
   const [sendStatus, setSendStatus] = useState<SendStatus>('pending');
   const [token, setToken] = useState('');
   const [verifying, setVerifying] = useState(false);
-  const [reviewMode, setReviewMode] = useState(false);
-  const [reviewCode, setReviewCode] = useState('');
-  const [reviewVerifying, setReviewVerifying] = useState(false);
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
 
@@ -50,15 +47,28 @@ export default function LoginScreen() {
       });
   };
 
-  const handleSend = () => {
-    const trimmed = email.trim().toLowerCase();
-    if (!trimmed || !trimmed.includes('@')) {
-      Alert.alert(t('auth.invalidEmailTitle'), t('auth.invalidEmailMessage'));
+  const handleSend = async () => {
+    const trimmed = email.trim();
+    if (!trimmed) return;
+
+    // If the input has no @, treat it as a reviewer access code
+    if (!trimmed.includes('@')) {
+      setVerifying(true);
+      try {
+        const data = await verifyReviewCode(trimmed.toUpperCase());
+        await saveAuth(data.token, data.user);
+        router.replace('/(app)');
+      } catch (err: any) {
+        Alert.alert('Invalid code', err?.message ?? 'Code is invalid or expired.');
+      } finally {
+        setVerifying(false);
+      }
       return;
     }
-    // Navigate immediately — don't make the user wait for the network
+
+    // Normal magic-link flow
     setSent(true);
-    fireSend(trimmed);
+    fireSend(trimmed.toLowerCase());
   };
 
   const handleRetry = () => {
@@ -77,21 +87,6 @@ export default function LoginScreen() {
       Alert.alert('Invalid token', err?.message ?? 'Token is invalid or expired.');
     } finally {
       setVerifying(false);
-    }
-  };
-
-  const handleReviewCode = async () => {
-    const code = reviewCode.trim();
-    if (!code) return;
-    setReviewVerifying(true);
-    try {
-      const data = await verifyReviewCode(code);
-      await saveAuth(data.token, data.user);
-      router.replace('/(app)');
-    } catch (err: any) {
-      Alert.alert('Invalid code', err?.message ?? 'Code is invalid or expired.');
-    } finally {
-      setReviewVerifying(false);
     }
   };
 
@@ -211,47 +206,15 @@ export default function LoginScreen() {
           />
 
           <TouchableOpacity
-            style={[styles.button, !email.trim() && styles.buttonDisabled]}
+            style={[styles.button, (!email.trim() || verifying) && styles.buttonDisabled]}
             onPress={handleSend}
-            disabled={!email.trim()}
+            disabled={!email.trim() || verifying}
           >
-            <Text style={styles.buttonText}>{t('auth.sendLink')}</Text>
+            {verifying
+              ? <ActivityIndicator color={colors.primaryForeground} />
+              : <Text style={styles.buttonText}>{t('auth.sendLink')}</Text>
+            }
           </TouchableOpacity>
-
-          {/* Reviewer access — hidden from regular users, shown for store review */}
-          {!reviewMode ? (
-            <TouchableOpacity style={styles.reviewerLink} onPress={() => setReviewMode(true)}>
-              <Text style={styles.reviewerLinkText}>Reviewer access</Text>
-            </TouchableOpacity>
-          ) : (
-            <View style={styles.reviewerBox}>
-              <Text style={styles.reviewerBoxLabel}>Enter review code</Text>
-              <TextInput
-                style={styles.input}
-                value={reviewCode}
-                onChangeText={setReviewCode}
-                placeholder="Review code"
-                placeholderTextColor={colors.mutedForeground}
-                autoCapitalize="characters"
-                autoCorrect={false}
-                returnKeyType="go"
-                onSubmitEditing={handleReviewCode}
-              />
-              <TouchableOpacity
-                style={[styles.button, (!reviewCode.trim() || reviewVerifying) && styles.buttonDisabled]}
-                onPress={handleReviewCode}
-                disabled={!reviewCode.trim() || reviewVerifying}
-              >
-                {reviewVerifying
-                  ? <ActivityIndicator color={colors.primaryForeground} />
-                  : <Text style={styles.buttonText}>Continue</Text>
-                }
-              </TouchableOpacity>
-              <TouchableOpacity onPress={() => { setReviewMode(false); setReviewCode(''); }}>
-                <Text style={[styles.reviewerLinkText, { marginTop: 12 }]}>Cancel</Text>
-              </TouchableOpacity>
-            </View>
-          )}
         </View>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -372,8 +335,4 @@ const makeStyles = (c: ColorTokens) => StyleSheet.create({
   },
   linkButton: { marginTop: 20 },
   linkText: { color: c.primary, fontSize: 15, fontWeight: '600' },
-  reviewerLink: { marginTop: 32 },
-  reviewerLinkText: { color: c.mutedForeground, fontSize: 12, textAlign: 'center' },
-  reviewerBox: { width: '100%', marginTop: 32 },
-  reviewerBoxLabel: { fontSize: 13, color: c.mutedForeground, marginBottom: 8, textAlign: 'center' },
 });
