@@ -6,320 +6,295 @@
 Internet
   |
   v
-Azure App Service (ari-web) — Next.js frontend, port 3000
+Azure App Service (web) — Next.js frontend, port 3000
   |  JWT auth
   v
-Azure App Service (ari-api) — Python/Quart API, port 8000
+Azure App Service (api) — Python/Quart API, port 8000
   |  Internal HTTP
   v
-Azure App Service (ari-mcp) — Python/Quart MCP tool server, port 8100
+Azure App Service (mcp) — Python/Quart MCP tool server, port 8100
   |
   v
 Azure Cosmos DB, Blob Storage, OpenAI, AI Search
 ```
 
-## Prerequisites
+All apps run as **Docker containers** pulled from ACR via managed identity.
+Never use zip deploy — Oryx interferes with both the Next.js standalone build and Python startup times.
 
-- Azure CLI installed (`az login`)
-- Node.js 20+ with pnpm
-- Python 3.12+
+---
 
-## Step 1: Create Azure Resources
+## Environments
 
-```bash
-# Resource group
-az group create --name rg-ari-prod --location eastus
+| | **Production** | **Dev** |
+|---|---|---|
+| Resource Group | `rg-ari-prod` | `rg-ari-dev` |
+| App Service Plan | `plan-ari-prod` (B2 Linux) | `plan-ari-dev` (B1 Linux) |
+| Web app | `ari-web` | `ari-web-dev` |
+| API app | `reilabs-ari-api` | `ari-api-dev` |
+| MCP app | `reilabs-ari-mcp` | `ari-mcp-dev` |
+| ACR image — web | `ariprodacr.azurecr.io/ari-web:latest` | `ariprodacr.azurecr.io/ari-web:dev` |
+| ACR image — api | `ariprodacr.azurecr.io/ari-api:latest` | `ariprodacr.azurecr.io/ari-api:dev` |
+| ACR image — mcp | `ariprodacr.azurecr.io/ari-mcp:latest` | `ariprodacr.azurecr.io/ari-mcp:dev` |
+| Cosmos DB | `db-uc-ai` | `db-uc-ai-dev` |
+| Stripe | Live keys | Test keys (`sk_test_...`) |
+| Web URL | https://chat.reilabs.ai | https://ari-web-dev.azurewebsites.net |
+| API URL | https://reilabs-ari-api.azurewebsites.net | https://ari-api-dev.azurewebsites.net |
+| MCP URL | https://reilabs-ari-mcp.azurewebsites.net | https://ari-mcp-dev.azurewebsites.net |
 
-# Shared Linux App Service Plan (B2 minimum for 3 apps)
-az appservice plan create \
-  --name plan-ari-prod \
-  --resource-group rg-ari-prod \
-  --sku B2 \
-  --is-linux
+Shared across both environments: ACR (`ariprodacr`), Blob Storage, Azure OpenAI, AI Search.
 
-# Frontend (Node.js 20)
-az webapp create \
-  --name ari-web \
-  --resource-group rg-ari-prod \
-  --plan plan-ari-prod \
-  --runtime "NODE:20-lts"
+---
 
-# API backend (Python 3.12)
-az webapp create \
-  --name ari-api \
-  --resource-group rg-ari-prod \
-  --plan plan-ari-prod \
-  --runtime "PYTHON:3.12"
+## Day-to-day: Rebuild & Deploy
 
-# MCP tool server (Python 3.12)
-az webapp create \
-  --name ari-mcp \
-  --resource-group rg-ari-prod \
-  --plan plan-ari-prod \
-  --runtime "PYTHON:3.12"
-```
-
-## Step 2: Configure Startup Commands
-
-```bash
-# API — uses apps/api/startup.sh (Hypercorn on port 8000)
-az webapp config set --name ari-api \
-  --resource-group rg-ari-prod \
-  --startup-file startup.sh
-
-# MCP — uses apps/mcp/startup.sh (Hypercorn on port 8100)
-az webapp config set --name ari-mcp \
-  --resource-group rg-ari-prod \
-  --startup-file startup.sh
-
-# MCP listens on 8100, tell App Service to route there
-az webapp config appsettings set --name ari-mcp \
-  --resource-group rg-ari-prod \
-  --settings WEBSITES_PORT=8100
-```
-
-## Step 3: Set Environment Variables
-
-### ari-api
-
-Copy all values from `apps/api/.env`. The critical ones:
-
-```bash
-az webapp config appsettings set --name ari-api \
-  --resource-group rg-ari-prod \
-  --settings \
-    JWT_SECRET="<must match ari-web>" \
-    MCP_BASE_URL="https://ari-mcp.azurewebsites.net" \
-    MCP_ENABLED="True" \
-    FRONTEND_URL="https://ari-web.azurewebsites.net" \
-    ALLOWED_ORIGINS="https://ari-web.azurewebsites.net" \
-    AZURE_OPENAI_KEY="<your-key>" \
-    AZURE_OPENAI_ENDPOINT="https://rei-labs-ari.openai.azure.com/" \
-    AZURE_OPENAI_DEPLOYMENT="gpt-5.2-chat" \
-    AZURE_OPENAI_API_VERSION="2024-12-01-preview" \
-    AZURE_COSMOSDB_ACCOUNT="db-uc-ai" \
-    AZURE_COSMOSDB_ACCOUNT_KEY="<your-key>" \
-    AZURE_COSMOSDB_DATABASE="db_conversation_history" \
-    AZURE_COSMOSDB_SESSIONS_CONTAINER="sessions" \
-    AZURE_BLOB_ACCOUNT_NAME="reilabsexternalstorage" \
-    AZURE_BLOB_ACCOUNT_KEY="<your-key>" \
-    AZURE_BLOB_CUSTOM_DOMAIN="data.reilabs.ai" \
-    AZURE_SEARCH_SERVICE="uc-ai-search" \
-    AZURE_SEARCH_KEY="<your-key>" \
-    AZURE_SEARCH_INDEX="uc-ai-kb-index" \
-    STRIPE_SECRET_KEY="<your-key>" \
-    STRIPE_WEBHOOK_SECRET="<your-key>"
-```
-
-Plus all the system message env vars (`AZURE_OPENAI_SYSTEM_MESSAGE`, `AZURE_OPENAI_BUYERS_SYSTEM_MESSAGE`, etc.) from your `.env`.
-
-### ari-mcp
-
-Copy all values from `apps/mcp/.env` (shares many with API):
-
-```bash
-az webapp config appsettings set --name ari-mcp \
-  --resource-group rg-ari-prod \
-  --settings \
-    WEBSITES_PORT=8100 \
-    AZURE_COSMOSDB_ACCOUNT="db-uc-ai" \
-    AZURE_COSMOSDB_ACCOUNT_KEY="<your-key>" \
-    AZURE_COSMOSDB_BUYERS_DATABASE="db_buyers" \
-    AZURE_COSMOSDB_NATIONWIDE_BUYERS_CONTAINER="nationwide_buyers" \
-    AZURE_COSMOSDB_LEADGEN_DATABASE="db_leads_history" \
-    AZURE_COSMOSDB_LEADGEN_CONTAINER="lead_gen" \
-    AZURE_BLOB_ACCOUNT_NAME="reilabsexternalstorage" \
-    AZURE_BLOB_ACCOUNT_KEY="<your-key>" \
-    AZURE_SEARCH_SERVICE="uc-ai-search" \
-    AZURE_SEARCH_KEY="<your-key>" \
-    AZURE_SEARCH_INDEX="uc-ai-kb-index" \
-    SCRAPING_BEE_API_KEY="<your-key>" \
-    BRICKED_API_KEY="<your-key>"
-```
-
-Plus all the system message env vars from your `.env`.
-
-### ari-web
-
-```bash
-az webapp config appsettings set --name ari-web \
-  --resource-group rg-ari-prod \
-  --settings \
-    NEXT_PUBLIC_API_URL="https://ari-api.azurewebsites.net" \
-    JWT_SECRET="<must match ari-api>" \
-    AUTH_SECRET="<your-secret>"
-```
-
-## Step 4: Deploy Code
+Run these from the relevant `apps/<service>` directory.
 
 ### API
 
 ```bash
+# Production
 cd apps/api
-zip -r /tmp/api.zip . \
-  -x "venv/*" "__pycache__/*" ".env" ".env.local" "*.pyc" ".pytest_cache/*" "tests/*"
+az acr build -r ariprodacr -t ari-api:latest .
+az webapp restart -g rg-ari-prod -n reilabs-ari-api
 
-az webapp deploy --name ari-api \
-  --resource-group rg-ari-prod \
-  --src-path /tmp/api.zip --type zip
+# Dev
+cd apps/api
+az acr build -r ariprodacr -t ari-api:dev .
+az webapp restart -g rg-ari-dev -n ari-api-dev
 ```
 
 ### MCP
 
 ```bash
+# Production
 cd apps/mcp
-zip -r /tmp/mcp.zip . \
-  -x "venv/*" "__pycache__/*" ".env" ".env.local" "*.pyc" ".pytest_cache/*" "tests/*"
+az acr build -r ariprodacr -t ari-mcp:latest .
+az webapp restart -g rg-ari-prod -n reilabs-ari-mcp
 
-az webapp deploy --name ari-mcp \
-  --resource-group rg-ari-prod \
-  --src-path /tmp/mcp.zip --type zip
+# Dev
+cd apps/mcp
+az acr build -r ariprodacr -t ari-mcp:dev .
+az webapp restart -g rg-ari-dev -n ari-mcp-dev
 ```
 
-### Web (build first)
+### Web
+
+The web image must be built with `NEXT_PUBLIC_API_URL` as a build arg (it's baked into the JS bundle).
 
 ```bash
+# Production
 cd apps/web
-pnpm install
-pnpm build
+az acr build -r ariprodacr -t ari-web:latest \
+  --build-arg NEXT_PUBLIC_API_URL=https://reilabs-ari-api.azurewebsites.net .
+az webapp restart -g rg-ari-prod -n ari-web
 
-# Package the standalone output
-cd .next/standalone
-cp -r ../.next/static .next/static
-cp -r ../../public ./public
-zip -r /tmp/web.zip .
-
-az webapp deploy --name ari-web \
-  --resource-group rg-ari-prod \
-  --src-path /tmp/web.zip --type zip
+# Dev
+cd apps/web
+az acr build -r ariprodacr -t ari-web:dev \
+  --build-arg NEXT_PUBLIC_API_URL=https://ari-api-dev.azurewebsites.net .
+az webapp restart -g rg-ari-dev -n ari-web-dev
 ```
 
-Set the startup command for Next.js standalone:
-```bash
-az webapp config set --name ari-web \
-  --resource-group rg-ari-prod \
-  --startup-file "node server.js"
-```
+---
 
-## Step 5: Configure Stripe Webhook
+## Logs
 
-In the Stripe Dashboard, add a webhook endpoint:
-- URL: `https://ari-api.azurewebsites.net/webhook/stripe`
-- Events: `checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted`, `invoice.payment_succeeded`, `invoice.payment_failed`
-
-## Step 6: Custom Domains (optional)
+### Live tail
 
 ```bash
-# Frontend
-az webapp config hostname add \
-  --webapp-name ari-web \
-  --resource-group rg-ari-prod \
-  --hostname app.reilabs.ai
+# Production
+az webapp log tail --name reilabs-ari-api --resource-group rg-ari-prod
+az webapp log tail --name reilabs-ari-mcp --resource-group rg-ari-prod
+az webapp log tail --name ari-web          --resource-group rg-ari-prod
 
-# API
-az webapp config hostname add \
-  --webapp-name ari-api \
-  --resource-group rg-ari-prod \
-  --hostname api.reilabs.ai
-
-# Enable managed SSL certificates
-az webapp config ssl create \
-  --name ari-web \
-  --resource-group rg-ari-prod \
-  --hostname app.reilabs.ai
-
-az webapp config ssl create \
-  --name ari-api \
-  --resource-group rg-ari-prod \
-  --hostname api.reilabs.ai
+# Dev
+az webapp log tail --name ari-api-dev --resource-group rg-ari-dev
+az webapp log tail --name ari-mcp-dev --resource-group rg-ari-dev
+az webapp log tail --name ari-web-dev --resource-group rg-ari-dev
 ```
 
-After custom domains, update env vars:
-- `ari-api`: `FRONTEND_URL=https://app.reilabs.ai`, `ALLOWED_ORIGINS=https://app.reilabs.ai`
-- `ari-api`: `MCP_BASE_URL=https://ari-mcp.azurewebsites.net` (keep internal, no custom domain needed)
-- `ari-web`: `NEXT_PUBLIC_API_URL=https://api.reilabs.ai`
-
-## Viewing Logs
+### Docker container logs (Python stdout)
 
 ```bash
-# Live tail (like running locally)
-az webapp log tail --name ari-api --resource-group rg-ari-prod
-az webapp log tail --name ari-mcp --resource-group rg-ari-prod
-az webapp log tail --name ari-web --resource-group rg-ari-prod
+# Enable filesystem logging first (one-time per app)
+az webapp log config --docker-container-logging filesystem \
+  --name reilabs-ari-api --resource-group rg-ari-prod     # or ari-api-dev / rg-ari-dev
 
-# Or in Azure Portal: App Service > Log stream
+# Download logs — look for *_default_docker.log inside the zip
+az webapp log download --name reilabs-ari-api --resource-group rg-ari-prod --log-file /tmp/api-logs.zip
 ```
 
-Enable application logging:
+---
+
+## Environment Variables
+
+Key differences between environments — everything else is the same.
+
+| Variable | Production | Dev |
+|---|---|---|
+| `FRONTEND_URL` | `https://chat.reilabs.ai` | `https://ari-web-dev.azurewebsites.net` |
+| `ALLOWED_ORIGINS` | `https://chat.reilabs.ai` | `https://ari-web-dev.azurewebsites.net` |
+| `MCP_BASE_URL` | `https://reilabs-ari-mcp.azurewebsites.net` | `https://ari-mcp-dev.azurewebsites.net` |
+| `NEXT_PUBLIC_API_URL` | `https://reilabs-ari-api.azurewebsites.net` | `https://ari-api-dev.azurewebsites.net` |
+| `AUTH_URL` | `https://chat.reilabs.ai` | `https://ari-web-dev.azurewebsites.net` |
+| `AZURE_COSMOSDB_ACCOUNT` | `db-uc-ai` | `db-uc-ai-dev` |
+| `STRIPE_SECRET_KEY` | `sk_live_...` | `sk_test_...` |
+| `STRIPE_WEBHOOK_SECRET` | live secret | test secret |
+| `ENVIRONMENT` | `production` | `development` |
+
+To update a single variable:
 ```bash
-az webapp log config --name ari-api \
-  --resource-group rg-ari-prod \
-  --application-logging filesystem \
-  --level information
+# Production
+az webapp config appsettings set -g rg-ari-prod -n reilabs-ari-api \
+  --settings SOME_VAR="new-value"
 
-az webapp log config --name ari-mcp \
-  --resource-group rg-ari-prod \
-  --application-logging filesystem \
-  --level information
+# Dev
+az webapp config appsettings set -g rg-ari-dev -n ari-api-dev \
+  --settings SOME_VAR="new-value"
 ```
 
-## Redeploying After Code Changes
+To copy all settings from prod to dev (with URL overrides), run the script at `scripts/sync-dev-settings.py`.
+
+---
+
+## Stripe Webhooks
+
+Add webhook endpoints in the Stripe Dashboard pointing to the API `/webhook/stripe` route.
+
+| Environment | Dashboard | Endpoint URL |
+|---|---|---|
+| Production | [Live mode](https://dashboard.stripe.com/webhooks) | `https://reilabs-ari-api.azurewebsites.net/webhook/stripe` |
+| Dev | [Test mode](https://dashboard.stripe.com/test/webhooks) | `https://ari-api-dev.azurewebsites.net/webhook/stripe` |
+
+Events to subscribe: `checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted`, `invoice.payment_succeeded`, `invoice.payment_failed`
+
+---
+
+## First-Time Setup (new environment)
+
+Only needed when creating a brand-new environment from scratch. The dev environment was created on 2026-03-24 and is already running.
+
+### 1. Create resources
 
 ```bash
-# Redeploy API
-cd apps/api
-zip -r /tmp/api.zip . -x "venv/*" "__pycache__/*" ".env" ".env.local" "*.pyc" ".pytest_cache/*" "tests/*"
-az webapp deploy --name ari-api --resource-group rg-ari-prod --src-path /tmp/api.zip --type zip
+ENV=dev   # or prod
+RG=rg-ari-$ENV
+PLAN=plan-ari-$ENV
+SKU=B1    # B2 for prod
 
-# Redeploy MCP
-cd apps/mcp
-zip -r /tmp/mcp.zip . -x "venv/*" "__pycache__/*" ".env" ".env.local" "*.pyc" ".pytest_cache/*" "tests/*"
-az webapp deploy --name ari-mcp --resource-group rg-ari-prod --src-path /tmp/mcp.zip --type zip
+az group create --name $RG --location eastus
+az appservice plan create --name $PLAN --resource-group $RG --sku $SKU --is-linux
 
-# Redeploy Web
-cd apps/web && pnpm build
-cd .next/standalone && cp -r ../.next/static .next/static && cp -r ../../public ./public
-zip -r /tmp/web.zip . && az webapp deploy --name ari-web --resource-group rg-ari-prod --src-path /tmp/web.zip --type zip
+# Create 3 container apps
+for app in ari-web ari-api ari-mcp; do
+  az webapp create --name ${app}-${ENV} --resource-group $RG --plan $PLAN \
+    --deployment-container-image-name ariprodacr.azurecr.io/${app}:${ENV}
+done
 ```
+
+### 2. Managed identity for ACR pulls
+
+```bash
+ACR_ID=$(az acr show --name ariprodacr --query id -o tsv)
+
+for app in ari-web ari-api ari-mcp; do
+  az webapp identity assign --name ${app}-${ENV} --resource-group $RG -o none
+  PRINCIPAL=$(az webapp identity show --name ${app}-${ENV} --resource-group $RG \
+    --query principalId -o tsv)
+  az role assignment create --assignee $PRINCIPAL --role AcrPull --scope $ACR_ID -o none
+  az webapp update --name ${app}-${ENV} --resource-group $RG \
+    --set siteConfig.acrUseManagedIdentityCreds=true -o none
+done
+```
+
+### 3. Critical settings (apply before first start)
+
+```bash
+# All apps — prevents stale home volume issues
+for app in ari-web ari-api ari-mcp; do
+  az webapp config appsettings set --name ${app}-${ENV} --resource-group $RG \
+    --settings WEBSITES_ENABLE_APP_SERVICE_STORAGE=false -o none
+done
+
+# MCP needs a non-default port
+az webapp config appsettings set --name ari-mcp-${ENV} --resource-group $RG \
+  --settings WEBSITES_PORT=8100 -o none
+```
+
+### 4. Copy settings from prod and apply overrides
+
+```bash
+python3 scripts/sync-dev-settings.py
+```
+
+### 5. Build and push images, then restart
+
+```bash
+cd apps/api  && az acr build -r ariprodacr -t ari-api:${ENV} .
+cd apps/mcp  && az acr build -r ariprodacr -t ari-mcp:${ENV} .
+cd apps/web  && az acr build -r ariprodacr -t ari-web:${ENV} \
+  --build-arg NEXT_PUBLIC_API_URL=https://ari-api-${ENV}.azurewebsites.net .
+
+for app in ari-web ari-api ari-mcp; do
+  az webapp restart --name ${app}-${ENV} --resource-group $RG
+done
+```
+
+---
 
 ## Azure Services Inventory
 
-| Service | Resource Name | Purpose |
-|---------|--------------|---------|
-| App Service Plan | `plan-ari-prod` | Hosts all 3 apps (B2 Linux) |
-| App Service | `ari-web` | Next.js frontend |
-| App Service | `ari-api` | Python API backend |
-| App Service | `ari-mcp` | Python MCP tool server |
-| Cosmos DB | `db-uc-ai` | Sessions, messages, users, buyers, leads cache |
-| Blob Storage | `reilabsexternalstorage` | Document/Excel exports (`data.reilabs.ai`) |
+| Service | Resource | Purpose |
+|---|---|---|
+| ACR | `ariprodacr` | Docker image registry (shared prod + dev) |
+| App Service Plan (prod) | `plan-ari-prod` | B2 Linux — hosts prod apps |
+| App Service Plan (dev) | `plan-ari-dev` | B1 Linux — hosts dev apps |
+| Cosmos DB (prod) | `db-uc-ai` | Sessions, messages, users, subscriptions |
+| Cosmos DB (dev) | `db-uc-ai-dev` | Dev data (isolated from prod) |
+| Blob Storage | `reilabsexternalstorage` | DOCX/Excel exports (`data.reilabs.ai`) |
 | Azure OpenAI | `rei-labs-ari` | GPT-5.2 chat + GPT-5-mini classification |
 | AI Search | `uc-ai-search` | Knowledge base, leads, contracts indices |
 | Communication Services | `reilabs-communication-services` | Magic link emails |
-| Redis Cache | `ari-production` | Rate limiting (has in-memory fallback) |
 
-## Cosmos DB Databases & Containers
+### Cosmos DB Databases & Containers
 
-| Database | Container | Partition Key | Data |
-|----------|-----------|---------------|------|
-| `db_conversation_history` | `sessions` | `/userId` | Chat sessions, messages, users, documents, votes |
-| `db_leads_history` | `lead_gen` | — | Cached lead scrape results (24h TTL) |
-| `db_buyers` | `nationwide_buyers` | — | Nationwide cash buyer database |
+| Database | Container | Data |
+|---|---|---|
+| `db_conversation_history` | `sessions` | Chat sessions, messages, users, subscriptions |
+| `db_leads_history` | `lead_gen` | Cached lead scrape results (24h TTL) |
+| `db_buyers` | `nationwide_buyers` | Nationwide cash buyer database |
 
-## Blob Storage Containers
+### Blob Storage Containers
 
 | Container | Content | SAS Expiry |
-|-----------|---------|------------|
+|---|---|---|
 | `documents` | DOCX exports, buyer Excel files | 30 min (DOCX), 9 days (Excel) |
 | `leads-test` | Lead/attorney Excel exports | 9 days |
 
+---
+
 ## Troubleshooting
 
-**API returns 401 on chat**: `JWT_SECRET` must match between `ari-web` and `ari-api`.
+**API returns 401 on chat**
+`JWT_SECRET` must match between `ari-web` and `ari-api` (or their dev counterparts).
 
-**MCP tools not working**: Check `MCP_BASE_URL` points to `https://ari-mcp.azurewebsites.net` and that `ari-mcp` is running. Tail `ari-api` logs for `[MCP]` messages.
+**MCP tools not working**
+Check `MCP_BASE_URL` points to the correct MCP URL for the environment. Tail the API logs for `[MCP]` messages.
 
-**Buyers returns educational content**: User needs `subscription_status: "active"` in Cosmos user doc. Check `ari-api` logs for `guest tools` messages.
+**`ModuleNotFoundError` on startup despite package being in image**
+`WEBSITES_ENABLE_APP_SERVICE_STORAGE` is `true` — Azure is mounting a stale `/home` volume over the image. Set it to `false` and restart.
 
-**"Loading Chats..." spinner stuck**: Check `ari-api` logs for auth errors on `/sessions` endpoint.
+**Manage Subscription button stuck on "Redirecting..."**
+The API returned an error without a `url` field. Check API logs for the actual error — common causes: `stripe_customer_id` missing from Cosmos user doc, or Stripe Customer Portal not configured in the Stripe Dashboard.
 
-**Blob uploads fail**: Verify `AZURE_BLOB_ACCOUNT_NAME` and `AZURE_BLOB_ACCOUNT_KEY` are set on both `ari-api` and `ari-mcp`.
+**Magic links going to wrong environment**
+`FRONTEND_URL` on the API app controls where magic link emails point. Prod should be `https://chat.reilabs.ai`, dev should be `https://ari-web-dev.azurewebsites.net`.
+
+**Buyers returns educational content**
+User needs `subscription_status: "active"` in their Cosmos user doc. Check API logs for `guest tools` messages.
+
+**"Loading Chats..." spinner stuck**
+Check API logs for auth errors on the `/sessions` endpoint.
+
+**Blob uploads fail**
+Verify `AZURE_BLOB_ACCOUNT_NAME` and `AZURE_BLOB_ACCOUNT_KEY` are set on both the API and MCP apps.

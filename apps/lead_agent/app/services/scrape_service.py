@@ -38,7 +38,7 @@ class ScrapingBeeClient:
                     "url": url,
                     "premium_proxy": "true",
                     "country_code": "us",
-                    "render_js": "true",
+                    "render_js": "false",
                 },
                 timeout=self.timeout,
             )

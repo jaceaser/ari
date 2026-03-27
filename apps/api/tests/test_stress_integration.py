@@ -218,8 +218,8 @@ async def test_50_turn_real_streaming_conversation():
         "Content-Type": "application/json",
     }
 
-    print(f"\n\nStress test → {API_BASE_URL}")
-    print(f"User: {STRESS_USER_EMAIL} ({STRESS_USER_ID})")
+    print(f"\n\nStress test → {API_BASE_URL}", flush=True)
+    print(f"User: {STRESS_USER_EMAIL} ({STRESS_USER_ID})", flush=True)
 
     async with httpx.AsyncClient(
         base_url=API_BASE_URL,
@@ -229,9 +229,9 @@ async def test_50_turn_real_streaming_conversation():
         resp = await client.post("/sessions", headers=headers)
         assert resp.status_code == 201, f"Failed to create session: {resp.status_code} {resp.text}"
         session_id = resp.json()["id"]
-        print(f"Session: {session_id}\n")
-        print(f"{'Turn':>4}  {'Time':>6}  {'Chars':>6}  {'Done':>5}  {'Trunc':>5}  Preview")
-        print("-" * 72)
+        print(f"Session: {session_id}\n", flush=True)
+        print(f"{'Turn':>4}  {'Time':>6}  {'Chars':>6}  {'Done':>5}  {'Trunc':>5}  Preview", flush=True)
+        print("-" * 72, flush=True)
 
         failures: list[str] = []
 
@@ -249,7 +249,7 @@ async def test_50_turn_real_streaming_conversation():
                         failures.append(
                             f"Turn {turn}: HTTP {stream_resp.status_code} — {body.decode()[:200]}"
                         )
-                        print(f"{turn:>4}  {'—':>6}  {'—':>6}  {'—':>5}  {'—':>5}  HTTP {stream_resp.status_code}")
+                        print(f"{turn:>4}  {'—':>6}  {'—':>6}  {'—':>5}  {'—':>5}  HTTP {stream_resp.status_code}", flush=True)
                         continue
 
                     text, done, truncated = await _read_sse_stream(stream_resp)
@@ -257,13 +257,14 @@ async def test_50_turn_real_streaming_conversation():
             except Exception as exc:
                 elapsed = time.monotonic() - t0
                 failures.append(f"Turn {turn}: exception after {elapsed:.1f}s — {exc}")
-                print(f"{turn:>4}  {elapsed:>5.1f}s  {'—':>6}  {'—':>5}  {'—':>5}  ERROR: {exc}")
+                print(f"{turn:>4}  {elapsed:>5.1f}s  {'—':>6}  {'—':>5}  {'—':>5}  ERROR: {exc}", flush=True)
                 continue
 
             elapsed = time.monotonic() - t0
             preview = text[:60].replace("\n", " ")
             print(
-                f"{turn:>4}  {elapsed:>5.1f}s  {len(text):>6}  {str(done):>5}  {str(truncated):>5}  {preview}"
+                f"{turn:>4}  {elapsed:>5.1f}s  {len(text):>6}  {str(done):>5}  {str(truncated):>5}  {preview}",
+                flush=True,
             )
 
             if not done:
@@ -275,8 +276,8 @@ async def test_50_turn_real_streaming_conversation():
                     f"Turn {turn}: response hit token limit (truncation notice present)"
                 )
 
-        print("-" * 72)
-        print(f"\n{len(PROMPTS) - len(failures)}/{len(PROMPTS)} turns passed\n")
+        print("-" * 72, flush=True)
+        print(f"\n{len(PROMPTS) - len(failures)}/{len(PROMPTS)} turns passed\n", flush=True)
 
         if failures:
             pytest.fail("Stress test failures:\n" + "\n".join(f"  • {f}" for f in failures))
