@@ -75,6 +75,8 @@ async def jwt_auth_middleware() -> Response | None:
         return None
     if request.path.startswith("/auth/magic-link/"):
         return None
+    if request.path == "/auth/review-code":
+        return None
 
     secret, algorithm = _get_jwt_config()
     if not secret:

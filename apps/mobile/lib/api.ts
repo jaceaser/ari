@@ -40,6 +40,15 @@ export async function verifyMagicLink(
   });
 }
 
+export async function verifyReviewCode(
+  code: string,
+): Promise<{ token: string; user: { id: string; email: string } }> {
+  return apiFetch('/auth/review-code', {
+    method: 'POST',
+    body: JSON.stringify({ code }),
+  });
+}
+
 // ─── Sessions ────────────────────────────────────────────────────────────────
 
 export type Session = {

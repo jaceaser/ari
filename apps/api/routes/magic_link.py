@@ -2,6 +2,7 @@
 
 POST /auth/magic-link/send  — send a magic link email
 POST /auth/magic-link/verify — verify token and return JWT
+POST /auth/review-code       — verify short review code (App Store / Play Store reviewers)
 """
 
 import datetime
@@ -296,3 +297,71 @@ async def verify_magic_link():
         "token": jwt_token,
         "user": {"id": user_id, "email": email},
     })
+
+
+# ── Review-code auth (App Store / Play Store reviewers) ──────────────────────
+#
+# Set REVIEW_CODE_IOS and REVIEW_CODE_ANDROID in the API's env vars.
+# Codes expire 2026-04-24; each issues a JWT valid until the same date.
+# The mobile login screen has a discrete "Reviewer access" link that
+# bypasses the magic-link flow and lets reviewers authenticate with the code.
+
+_REVIEW_CODE_EXPIRY = datetime.datetime(2026, 4, 24, tzinfo=datetime.timezone.utc)
+
+
+@magic_link_bp.post("/auth/review-code")
+async def verify_review_code():
+    """Verify a short reviewer code and return a JWT (no email required)."""
+    body = await request.get_json(silent=True) or {}
+    code = (body.get("code") or "").strip().upper()
+
+    if not code:
+        return jsonify({"error": "Code is required"}), 400
+
+    now = datetime.datetime.now(datetime.timezone.utc)
+    if now > _REVIEW_CODE_EXPIRY:
+        return jsonify({"error": "Review codes have expired"}), 401
+
+    platform_codes: dict[str, str] = {
+        "ios": (os.getenv("REVIEW_CODE_IOS") or "").strip().upper(),
+        "android": (os.getenv("REVIEW_CODE_ANDROID") or "").strip().upper(),
+    }
+
+    platform = next(
+        (p for p, stored in platform_codes.items() if stored and code == stored),
+        None,
+    )
+    if not platform:
+        return jsonify({"error": "Invalid review code"}), 401
+
+    email = f"review-{platform}@reilabs.ai"
+    user_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"ari:user:{email}"))
+
+    # Best-effort: ensure a review user doc exists in Cosmos (elite tier)
+    from cosmos import SessionsCosmosClient
+    cosmos = SessionsCosmosClient.get_instance()
+    if cosmos:
+        try:
+            await cosmos.ensure_user(user_id, email)
+        except Exception:
+            logger.warning("verify_review_code: could not ensure user %s", user_id)
+
+    secret, algorithm = _get_jwt_config()
+    if not secret:
+        return jsonify({"error": "Server configuration error", "detail": "JWT_SECRET not set"}), 500
+
+    try:
+        import jwt as pyjwt
+    except ImportError:
+        return jsonify({"error": "Server configuration error"}), 500
+
+    jwt_payload = {
+        "sub": user_id,
+        "email": email,
+        "iat": now,
+        "exp": _REVIEW_CODE_EXPIRY,
+    }
+    jwt_token = pyjwt.encode(jwt_payload, secret, algorithm=algorithm)
+
+    logger.info("Review code verified for platform: %s", platform)
+    return jsonify({"token": jwt_token, "user": {"id": user_id, "email": email}})
