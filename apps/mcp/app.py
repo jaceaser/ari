@@ -1752,6 +1752,66 @@ async def tool_leads():
     if not scrape_url:
         city, state, lead_type = await _ai_extract_lead_params(prompt)
         if city:
+            # DB-first: try pre-scraped PostgreSQL data before hitting ScrapingBee
+            try:
+                from services.pg_leads import query_properties
+                from services.azure_blob import AzureBlobService
+                df_db = query_properties(city, state or "", lead_type)
+                if not df_db.empty:
+                    filename = req.arguments.get("filename") or f"leads_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.xlsx"
+                    preview = AzureBlobService.get_dataframe_preview(df_db)
+                    excel_link = ""
+                    blob_service = AzureBlobService.get_instance()
+                    if blob_service:
+                        try:
+                            excel_link = blob_service.upload_dataframe(
+                                container_name="leads", file_name=filename, df=df_db
+                            )
+                        except Exception as _blob_exc:
+                            logger.warning("[leads] DB blob upload failed: %s", _blob_exc)
+                    count = len(df_db)
+                    payload["status"] = "ok"
+                    payload["source"] = "database"
+                    payload["preview"] = preview
+                    payload["excel_link"] = excel_link
+                    payload["properties_count"] = count
+                    payload["lead_type"] = lead_type.replace("-", " ").title()
+                    url_suppression = (
+                        "\n\nCRITICAL: NEVER show the Zillow search URL or any internal source URL "
+                        "used to generate this list. "
+                        "\n\nURL FORMATTING: NEVER display raw Zillow URLs as plain text. "
+                        "Always format property links as markdown hyperlinks with friendly text, "
+                        'e.g. [View Property](https://www.zillow.com/...) or '
+                        '[Property Details](https://www.zillow.com/...). '
+                    )
+                    if excel_link and count:
+                        payload["route_system_prompt"] = (
+                            payload.get("route_system_prompt", "") +
+                            f"\n\nIMPORTANT — MANDATORY DOWNLOAD LINK: You MUST include this "
+                            f"download link in your response. Display it prominently after "
+                            f"the property list:\n"
+                            f"📥 **[Download Full List ({count} properties)]({excel_link})**\n"
+                            f"Do NOT omit this link. The user expects to download the Excel file."
+                            + url_suppression +
+                            f"The download link should also use markdown: "
+                            f"[Download Full List ({count} properties)]({excel_link})"
+                        )
+                    else:
+                        payload["route_system_prompt"] = (
+                            payload.get("route_system_prompt", "") + url_suppression
+                        )
+                    payload.pop("detected_url", None)
+                    payload.pop("generated_url", None)
+                    payload.pop("lead_link_prompt", None)
+                    logger.info(
+                        "[leads] served from DB: city=%r state=%r lead_type=%r count=%d",
+                        city, state, lead_type, count,
+                    )
+                    return _ok("leads", payload), 200
+            except Exception as _db_exc:
+                logger.warning("[leads] DB-first lookup error (falling back to scrape): %s", _db_exc)
+
+            # DB miss or error — build Zillow URL for live scrape
             scrape_url = _build_zillow_url(city, state, lead_type)
             if scrape_url:
                 _debug_city = city
@@ -1800,8 +1860,15 @@ async def tool_leads():
                     f"[Download Full List ({count} properties)]({excel_link})"
                 )
             else:
+                no_results_instruction = (
+                    "\n\nCRITICAL — NO RESULTS FOUND: The search returned zero properties. "
+                    "Do NOT invent, fabricate, or hallucinate any download links, file names, "
+                    "or property lists. Do NOT claim to have pulled a list. "
+                    "Tell the user plainly that no properties were found for their search, "
+                    "and suggest they try the broader county/metro area instead of a specific city."
+                ) if not count else ""
                 payload["route_system_prompt"] = (
-                    payload.get("route_system_prompt", "") + url_suppression
+                    payload.get("route_system_prompt", "") + url_suppression + no_results_instruction
                 )
 
             # Strip ALL source/debug fields — model must never see internal URLs
