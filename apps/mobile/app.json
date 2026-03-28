@@ -97,7 +97,8 @@
             "ndk": "27.0.12077973"
           }
         }
-      ]
+      ],
+      "./plugins/withAndroidMediaPermissionsRemoved"
     ],
     "experiments": {
       "typedRoutes": true

@@ -36,11 +36,10 @@ async function pickFromCamera(onAttach: (a: Attachment) => void) {
 }
 
 async function pickFromLibrary(onAttach: (a: Attachment) => void) {
-  const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-  if (status !== 'granted') {
-    Alert.alert(i18n.t('attachment.permissionTitle'), i18n.t('attachment.libraryPermission'));
-    return;
-  }
+  // Android Photo Picker (PickVisualMedia) requires no permissions.
+  // iOS uses PHPickerViewController which also requires no permission.
+  // Do not call requestMediaLibraryPermissionsAsync() — it triggers
+  // READ_MEDIA_IMAGES which violates Google Play policy.
   const result = await ImagePicker.launchImageLibraryAsync({
     mediaTypes: ImagePicker.MediaTypeOptions.Images,
     quality: 0.8,
