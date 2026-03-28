@@ -165,12 +165,14 @@ export default function LoginScreen() {
               )}
             </TouchableOpacity>
 
-            <View style={styles.subscribeBanner}>
-              <Text style={styles.subscribeBannerText}>{t('auth.noSubscription')}</Text>
-              <TouchableOpacity onPress={handleSubscribe}>
-                <Text style={styles.subscribeBannerLink}>{t('auth.subscribeHere')}</Text>
-              </TouchableOpacity>
-            </View>
+            {Platform.OS !== 'ios' && (
+              <View style={styles.subscribeBanner}>
+                <Text style={styles.subscribeBannerText}>{t('auth.noSubscription')}</Text>
+                <TouchableOpacity onPress={handleSubscribe}>
+                  <Text style={styles.subscribeBannerLink}>{t('auth.subscribeHere')}</Text>
+                </TouchableOpacity>
+              </View>
+            )}
 
             <TouchableOpacity style={styles.linkButton} onPress={() => { setSent(false); setToken(''); setSendStatus('pending'); }}>
               <Text style={styles.linkText}>{t('auth.differentEmail')}</Text>

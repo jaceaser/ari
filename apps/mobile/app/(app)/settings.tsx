@@ -6,6 +6,7 @@ import {
   StyleSheet,
   Alert,
   ScrollView,
+  Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -53,6 +54,10 @@ export default function SettingsScreen() {
     await WebBrowser.openBrowserAsync('https://billing.stripe.com/p/login/aFa7sK4J91hJ5yVbxs5kk00');
   };
 
+  const handleLearnMore = async () => {
+    await WebBrowser.openBrowserAsync('https://reilabs.ai');
+  };
+
   const tierRaw = profile?.tier ?? 'free';
   const tierLabel = `ARI ${tierRaw.charAt(0).toUpperCase() + tierRaw.slice(1)}`;
   const initial = profile?.email?.[0]?.toUpperCase() ?? '?';
@@ -82,15 +87,33 @@ export default function SettingsScreen() {
           </View>
         </View>
 
-        <Text style={styles.sectionLabel}>{t('settings.subscriptionSection')}</Text>
-        <View style={styles.card}>
-          <RowItem
-            icon="card-outline"
-            label={t('settings.manageSubscription')}
-            onPress={handleManageBilling}
-            colors={colors}
-          />
-        </View>
+        {Platform.OS !== 'ios' && (
+          <>
+            <Text style={styles.sectionLabel}>{t('settings.subscriptionSection')}</Text>
+            <View style={styles.card}>
+              <RowItem
+                icon="card-outline"
+                label={t('settings.manageSubscription')}
+                onPress={handleManageBilling}
+                colors={colors}
+              />
+            </View>
+          </>
+        )}
+
+        {Platform.OS === 'ios' && (
+          <>
+            <Text style={styles.sectionLabel}>ACCOUNT INFO</Text>
+            <View style={styles.card}>
+              <RowItem
+                icon="globe-outline"
+                label="Manage your account at reilabs.ai"
+                onPress={handleLearnMore}
+                colors={colors}
+              />
+            </View>
+          </>
+        )}
 
         <Text style={styles.sectionLabel}>{t('settings.accountSection')}</Text>
         <View style={styles.card}>

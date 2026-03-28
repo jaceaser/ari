@@ -32,7 +32,7 @@
     "sendLink": "Send magic link",
     "checkEmail": "Check your email",
     "sendingLink": "Sending link to {{email}}...",
-    "linkSentMessage": "If you have an active subscription, a sign-in link is on its way to",
+    "linkSentMessage": "A sign-in link is on its way to",
     "linkSentSuffix": "Tap the link in your email to sign in instantly.",
     "rateLimited": "Too many requests. Please wait a moment before trying again.",
     "sendError": "Couldn't send the link.",

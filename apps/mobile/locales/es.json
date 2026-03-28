@@ -32,7 +32,7 @@
     "sendLink": "Enviar enlace mágico",
     "checkEmail": "Revisa tu correo",
     "sendingLink": "Enviando enlace a {{email}}...",
-    "linkSentMessage": "Si tienes una suscripción activa, un enlace de acceso está en camino a",
+    "linkSentMessage": "Un enlace de acceso está en camino a",
     "linkSentSuffix": "Toca el enlace en tu correo para iniciar sesión al instante.",
     "rateLimited": "Demasiadas solicitudes. Por favor espera un momento antes de intentarlo de nuevo.",
     "sendError": "No se pudo enviar el enlace.",

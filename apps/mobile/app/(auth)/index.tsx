@@ -5,6 +5,7 @@ import {
   TouchableOpacity,
   StyleSheet,
   SafeAreaView,
+  Platform,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
@@ -42,13 +43,24 @@ export default function WelcomeScreen() {
             <Text style={styles.primaryButtonText}>{t('auth.signIn')}</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity
-            style={styles.secondaryButton}
-            onPress={handleSubscribe}
-            activeOpacity={0.85}
-          >
-            <Text style={styles.secondaryButtonText}>{t('auth.subscribe')}</Text>
-          </TouchableOpacity>
+          {Platform.OS !== 'ios' && (
+            <TouchableOpacity
+              style={styles.secondaryButton}
+              onPress={handleSubscribe}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.secondaryButtonText}>{t('auth.subscribe')}</Text>
+            </TouchableOpacity>
+          )}
+
+          {Platform.OS === 'ios' && (
+            <TouchableOpacity
+              onPress={() => WebBrowser.openBrowserAsync('https://reilabs.ai')}
+              activeOpacity={0.6}
+            >
+              <Text style={styles.learnMoreText}>Learn more at reilabs.ai</Text>
+            </TouchableOpacity>
+          )}
         </View>
       </View>
     </SafeAreaView>
@@ -134,5 +146,11 @@ const makeStyles = (c: ColorTokens) => StyleSheet.create({
     fontSize: 17,
     fontWeight: '600',
     color: c.foreground,
+  },
+  learnMoreText: {
+    fontSize: 14,
+    color: c.mutedForeground,
+    textAlign: 'center',
+    paddingVertical: 8,
   },
 });
