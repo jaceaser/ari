@@ -76,7 +76,7 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "ARI needs access to your photos to attach images to messages.",
+          "photosPermission": false,
           "cameraPermission": "ARI needs camera access to take photos for your messages."
         }
       ],
@@ -89,7 +89,15 @@
           "backgroundColor": "#0a0a0a"
         }
       ],
-      "expo-font"
+      "expo-font",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "ndk": "27.0.12077973"
+          }
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true
