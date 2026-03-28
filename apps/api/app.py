@@ -1798,6 +1798,25 @@ async def generate_azure_response(
         completion_messages = _inject_server_system_prompts(completion_messages)
         completion_messages = _truncate_to_token_budget(completion_messages)
 
+        # gpt-5.x reasoning models can emit their internal chain-of-thought as
+        # regular delta.content before the actual response.  Suppress this by
+        # injecting an explicit system instruction that tells the model to skip
+        # any internal monologue and start the response immediately.
+        if _is_gpt5_deployment():
+            completion_messages = [
+                {
+                    "role": "system",
+                    "content": (
+                        "Respond directly to the user. "
+                        "Do NOT output your internal reasoning, planning, or chain-of-thought. "
+                        "Never begin with phrases like 'We need to…', 'I will now…', 'Let me…', "
+                        "'Proceed to…', 'I'll proceed', or any similar internal dialogue. "
+                        "Start your response with the actual answer immediately."
+                    ),
+                },
+                *completion_messages,
+            ]
+
         # Stream with up to 2 rounds of tool calls (generate_document)
         for _round in range(2):
             response = await client.chat.completions.create(
@@ -1819,6 +1838,11 @@ async def generate_azure_response(
 
                 for choice in payload.get("choices", []):
                     delta = choice.get("delta", {})
+
+                    # Strip reasoning_content — reasoning models (gpt-5.x) may emit
+                    # their internal thinking as a separate delta field.  Remove it
+                    # so it never reaches the client.
+                    delta.pop("reasoning_content", None)
 
                     # Accumulate text content
                     if "content" in delta and delta["content"]:
