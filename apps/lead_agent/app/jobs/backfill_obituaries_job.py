@@ -4,17 +4,25 @@ One-time backfill job — seeds the last N days of Dignity Memorial obituaries.
 Default: 365 days.  The job is idempotent: re-running it simply skips records
 that already exist (ON CONFLICT DO NOTHING).
 
+State-by-state pagination:
+  The Dignity Memorial search API (backed by Elasticsearch/Solr) caps results at
+  200 pages (10,000 records) per query regardless of the total result count.
+  A single nationwide query would silently truncate at 10k.  To capture all
+  ~234k obituaries we iterate state-by-state using the `locationState` parameter
+  so each state's result set stays well under 10k.
+
 Concurrency model (queue/worker):
-  - Pages are enqueued into a bounded Queue.
-  - A pool of worker threads drain the queue concurrently.
+  - Pages are submitted in batches equal to the concurrency window.
+  - A pool of worker threads drain the batch concurrently.
   - Each worker adds a small jittered delay between requests.
-  - Workers stop automatically when any page returns 0 parsed rows.
+  - Workers stop automatically when any page returns 0 parsed rows for a state.
   - A checkpoint is written after every batch so the run can be resumed.
 
 Resume behaviour:
-  - On startup, the last completed page is read from `obituary_backfill_state`.
-  - Processing restarts from (last_completed_page + 1).
-  - Pass --resume-from-page N on the CLI to override the checkpoint.
+  - On startup, the last completed page is read from `obituary_backfill_state`
+    for each (date_filter, state) pair.
+  - Processing restarts from (last_completed_page + 1) per state.
+  - Pass --resume-from-page N on the CLI to override for all states.
 """
 from __future__ import annotations
 
@@ -36,10 +44,20 @@ from app.services.obituary_scraper import ObituaryScraper
 
 logger = logging.getLogger(__name__)
 
-# Safety cap — Dignity Memorial shouldn't have more than ~10k pages for 365 days,
-# but we cap high to avoid an infinite loop if pagination logic has a bug.
-_MAX_PAGES = 5_000
+# Safety cap per state — no US state has anywhere near 200 pages (10k) of
+# obituaries in 365 days, but cap high to avoid infinite loops.
+_MAX_PAGES_PER_STATE = 500
 _DATE_FILTER = 365
+
+# All 54 US states, territories, and DC — matches _KNOWN_CODES in obituary_parser.py
+_US_STATES: list[str] = [
+    "AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA",
+    "HI", "ID", "IL", "IN", "IA", "KS", "KY", "LA", "ME", "MD",
+    "MA", "MI", "MN", "MS", "MO", "MT", "NE", "NV", "NH", "NJ",
+    "NM", "NY", "NC", "ND", "OH", "OK", "OR", "PA", "RI", "SC",
+    "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV", "WI", "WY",
+    "DC", "PR", "VI", "GU",
+]
 
 
 @dataclass
@@ -65,16 +83,16 @@ class BackfillStats:
 def _process_page(
     scraper: ObituaryScraper,
     date_filter: int,
+    state: str,
     page: int,
     delay_ms_min: int,
     delay_ms_max: int,
 ) -> _PageResult:
     """Fetch, parse, and insert one obituary listing page. Thread-safe."""
-    # Jittered delay before the request to avoid thundering-herd
     time.sleep(random.uniform(delay_ms_min, delay_ms_max) / 1000.0)
 
     try:
-        records, source_url = scraper.fetch_page(date_filter, page)
+        records, source_url = scraper.fetch_page(date_filter, page, state=state)
     except Exception as exc:
         return _PageResult(page=page, rows_parsed=0, inserted=0, deduped=0, malformed=0, error=str(exc))
 
@@ -99,64 +117,45 @@ def _process_page(
     )
 
 
-def run_backfill(
-    date_filter: int = _DATE_FILTER,
-    concurrency: Optional[int] = None,
-    resume: bool = True,
-    start_page: Optional[int] = None,
-) -> int:
-    """
-    Run the backfill.  Returns 0 on success, 1 if any pages failed.
-
-    Args:
-        date_filter:  Dignity Memorial creationDateFilter value (default 365).
-        concurrency:  Worker count. Defaults to OBITUARY_BACKFILL_CONCURRENCY (25).
-        resume:       If True (default), read the checkpoint and continue from there.
-        start_page:   Override the starting page (ignores checkpoint when set).
-    """
-    settings = get_settings()
-    workers = concurrency if concurrency is not None else settings.obituary_backfill_concurrency
-    delay_min = settings.obituary_request_delay_ms_min
-    delay_max = settings.obituary_request_delay_ms_max
-
-    # ── Determine starting page ───────────────────────────────────────────────
+def _backfill_state(
+    scraper: ObituaryScraper,
+    date_filter: int,
+    state: str,
+    workers: int,
+    delay_min: int,
+    delay_max: int,
+    resume: bool,
+    start_page: Optional[int],
+) -> BackfillStats:
+    """Run the full pagination loop for a single state. Returns per-state stats."""
+    # Determine starting page for this state
     if start_page is not None:
         first_page = start_page
-        logger.info("backfill_start date_filter=%d start_page=%d (manual override)", date_filter, first_page)
     elif resume:
         with get_db() as db:
-            repo = ObituaryRepo(db)
-            checkpoint = repo.get_last_completed_page(date_filter)
+            checkpoint = ObituaryRepo(db).get_last_completed_page(date_filter, state)
         first_page = checkpoint + 1
-        logger.info(
-            "backfill_start date_filter=%d resume=true checkpoint=%d first_page=%d",
-            date_filter, checkpoint, first_page,
-        )
+        if first_page > 1:
+            logger.info("state_resume state=%s checkpoint=%d first_page=%d", state, checkpoint, first_page)
     else:
         first_page = 1
-        logger.info("backfill_start date_filter=%d resume=false first_page=1", date_filter)
 
-    scraper = ObituaryScraper(settings.scrapingbee_api_key, settings.scrape_timeout_seconds)
+    if first_page > _MAX_PAGES_PER_STATE:
+        logger.info("state_skip state=%s first_page=%d >= max=%d", state, first_page, _MAX_PAGES_PER_STATE)
+        return BackfillStats()
 
     total = BackfillStats()
     stop_event = threading.Event()
-
-    # ── Queue / worker model ──────────────────────────────────────────────────
-    # Pages are submitted in batches equal to the concurrency window.
-    # We advance to the next batch only after the current one fully completes.
-    # This keeps the checkpoint simple: after each batch we record the highest
-    # page number in that batch.
     page = first_page
 
     with ThreadPoolExecutor(max_workers=workers) as pool:
-        while not stop_event.is_set() and page < first_page + _MAX_PAGES:
-            # Build current batch
-            batch_end = min(page + workers, first_page + _MAX_PAGES)
+        while not stop_event.is_set() and page < first_page + _MAX_PAGES_PER_STATE:
+            batch_end = min(page + workers, first_page + _MAX_PAGES_PER_STATE)
             batch = list(range(page, batch_end))
 
             futures = {
                 pool.submit(
-                    _process_page, scraper, date_filter, p, delay_min, delay_max
+                    _process_page, scraper, date_filter, state, p, delay_min, delay_max
                 ): p
                 for p in batch
             }
@@ -167,14 +166,14 @@ def run_backfill(
                 try:
                     result = fut.result()
                 except Exception as exc:
-                    logger.error("page_exception page=%d err=%s", p, exc)
+                    logger.error("page_exception state=%s page=%d err=%s", state, p, exc)
                     total.pages_failed += 1
                     continue
 
                 batch_max_page = max(batch_max_page, result.page)
 
                 if result.error:
-                    logger.error("page_failed page=%d err=%s", result.page, result.error)
+                    logger.error("page_failed state=%s page=%d err=%s", state, result.page, result.error)
                     total.pages_failed += 1
                     continue
 
@@ -184,41 +183,96 @@ def run_backfill(
                 total.rows_malformed += result.malformed
 
                 if result.rows_parsed == 0:
-                    logger.info(
-                        "page_empty page=%d — no more results, stopping pagination",
-                        result.page,
-                    )
+                    logger.info("page_empty state=%s page=%d — pagination exhausted", state, result.page)
                     total.pages_empty += 1
                     stop_event.set()
                 else:
                     logger.info(
-                        "page_done page=%d rows_parsed=%d inserted=%d deduped=%d malformed=%d",
-                        result.page,
-                        result.rows_parsed,
-                        result.inserted,
-                        result.deduped,
-                        result.malformed,
+                        "page_done state=%s page=%d rows=%d inserted=%d deduped=%d malformed=%d",
+                        state, result.page, result.rows_parsed, result.inserted,
+                        result.deduped, result.malformed,
                     )
 
-            # Save checkpoint after each completed batch
+            # Checkpoint after each batch
             with get_db() as db:
-                ObituaryRepo(db).save_backfill_progress(date_filter, batch_max_page)
-            logger.info("checkpoint_saved date_filter=%d last_page=%d", date_filter, batch_max_page)
+                ObituaryRepo(db).save_backfill_progress(date_filter, batch_max_page, state)
+            logger.info("checkpoint state=%s last_page=%d", state, batch_max_page)
 
             page += len(batch)
 
+    return total
+
+
+def run_backfill(
+    date_filter: int = _DATE_FILTER,
+    concurrency: Optional[int] = None,
+    resume: bool = True,
+    start_page: Optional[int] = None,
+    states: Optional[list[str]] = None,
+) -> int:
+    """
+    Run the backfill across all US states/territories.  Returns 0 on success,
+    1 if any pages failed.
+
+    Args:
+        date_filter:  Dignity Memorial creationDate value (default 365).
+        concurrency:  Worker count per state. Defaults to OBITUARY_BACKFILL_CONCURRENCY (25).
+        resume:       If True (default), read checkpoint per state and continue from there.
+        start_page:   Override starting page for ALL states (ignores checkpoints when set).
+        states:       Specific state codes to process (default: all 54 US states/territories).
+    """
+    settings = get_settings()
+    workers = concurrency if concurrency is not None else settings.obituary_backfill_concurrency
+    delay_min = settings.obituary_request_delay_ms_min
+    delay_max = settings.obituary_request_delay_ms_max
+
+    target_states = states or _US_STATES
+
     logger.info(
-        "backfill_complete date_filter=%d pages=%d inserted=%d deduped=%d "
-        "malformed=%d failed=%d",
-        date_filter,
-        total.pages_processed,
-        total.rows_inserted,
-        total.rows_deduped,
-        total.rows_malformed,
-        total.pages_failed,
+        "backfill_start date_filter=%d states=%d concurrency=%d resume=%s",
+        date_filter, len(target_states), workers, resume,
     )
 
-    return 1 if total.pages_failed > 0 else 0
+    scraper = ObituaryScraper(settings.scrapingbee_api_key, settings.scrape_timeout_seconds)
+
+    grand_total = BackfillStats()
+
+    for state in target_states:
+        logger.info("state_start state=%s date_filter=%d", state, date_filter)
+        stats = _backfill_state(
+            scraper=scraper,
+            date_filter=date_filter,
+            state=state,
+            workers=workers,
+            delay_min=delay_min,
+            delay_max=delay_max,
+            resume=resume,
+            start_page=start_page,
+        )
+        grand_total.pages_processed += stats.pages_processed
+        grand_total.rows_inserted += stats.rows_inserted
+        grand_total.rows_deduped += stats.rows_deduped
+        grand_total.rows_malformed += stats.rows_malformed
+        grand_total.pages_failed += stats.pages_failed
+        grand_total.pages_empty += stats.pages_empty
+
+        logger.info(
+            "state_complete state=%s pages=%d inserted=%d deduped=%d failed=%d",
+            state, stats.pages_processed, stats.rows_inserted, stats.rows_deduped, stats.pages_failed,
+        )
+
+    logger.info(
+        "backfill_complete date_filter=%d total_pages=%d inserted=%d deduped=%d "
+        "malformed=%d failed=%d",
+        date_filter,
+        grand_total.pages_processed,
+        grand_total.rows_inserted,
+        grand_total.rows_deduped,
+        grand_total.rows_malformed,
+        grand_total.pages_failed,
+    )
+
+    return 1 if grand_total.pages_failed > 0 else 0
 
 
 if __name__ == "__main__":

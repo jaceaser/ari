@@ -82,14 +82,16 @@ class ObituaryRepo:
 
     # ── Backfill progress checkpoint ──────────────────────────────────────────
 
-    def get_last_completed_page(self, date_filter: int) -> int:
-        """Return the highest page successfully completed for this date_filter, or 0."""
-        row = self._db.get(ObituaryBackfillState, date_filter)
+    def get_last_completed_page(self, date_filter: int, state: str = "") -> int:
+        """Return the highest page successfully completed for (date_filter, state), or 0."""
+        row = self._db.get(ObituaryBackfillState, {"date_filter": date_filter, "state": state})
         return row.last_completed_page if row else 0
 
-    def save_backfill_progress(self, date_filter: int, last_completed_page: int) -> None:
+    def save_backfill_progress(
+        self, date_filter: int, last_completed_page: int, state: str = ""
+    ) -> None:
         """Upsert the backfill checkpoint (only advances, never goes backwards)."""
-        existing = self._db.get(ObituaryBackfillState, date_filter)
+        existing = self._db.get(ObituaryBackfillState, {"date_filter": date_filter, "state": state})
         if existing:
             if last_completed_page > existing.last_completed_page:
                 existing.last_completed_page = last_completed_page
@@ -97,6 +99,7 @@ class ObituaryRepo:
             self._db.add(
                 ObituaryBackfillState(
                     date_filter=date_filter,
+                    state=state,
                     last_completed_page=last_completed_page,
                 )
             )

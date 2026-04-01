@@ -350,11 +350,17 @@ class Obituary(Base):
 
 
 class ObituaryBackfillState(Base):
-    """Checkpoint table so the 365-day backfill can resume after interruption."""
+    """Checkpoint table so the 365-day backfill can resume after interruption.
+
+    Primary key is (date_filter, state) so progress is tracked independently
+    per US state/territory — needed because the API caps results at 200 pages
+    (10k records) per query, so we iterate state-by-state.
+    """
 
     __tablename__ = "obituary_backfill_state"
 
     date_filter: Mapped[int] = mapped_column(Integer, primary_key=True)
+    state: Mapped[str] = mapped_column(String(2), primary_key=True, default="")
     last_completed_page: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False

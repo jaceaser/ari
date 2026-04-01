@@ -68,47 +68,58 @@ def seed():
 @cli.command("backfill-obituaries")
 @click.option(
     "--date-filter", "date_filter", default=365, show_default=True,
-    help="Dignity Memorial creationDateFilter (days back to seed).",
+    help="Dignity Memorial creationDate (days back to seed).",
 )
 @click.option(
     "--concurrency", default=None, type=int,
-    help="Worker threads (default: OBITUARY_BACKFILL_CONCURRENCY env var, factory 25).",
+    help="Worker threads per state (default: OBITUARY_BACKFILL_CONCURRENCY env var, factory 25).",
 )
 @click.option(
     "--no-resume", "no_resume", is_flag=True, default=False,
-    help="Ignore checkpoint and start from page 1.",
+    help="Ignore checkpoints and start each state from page 1.",
 )
 @click.option(
     "--start-page", "start_page", default=None, type=int,
-    help="Start from a specific page number, overriding the saved checkpoint.",
+    help="Override starting page for ALL states (ignores saved checkpoints).",
 )
-def backfill_obituaries(date_filter: int, concurrency: int, no_resume: bool, start_page: int):
-    """One-time 365-day backfill of Dignity Memorial obituaries.
+@click.option(
+    "--states", default=None,
+    help="Comma-separated state codes to process, e.g. TX,CA,FL (default: all 54).",
+)
+def backfill_obituaries(
+    date_filter: int, concurrency: int, no_resume: bool, start_page: int, states: str
+):
+    """365-day backfill of Dignity Memorial obituaries, iterating state-by-state.
+
+    The API caps results at 200 pages (10k records) per query, so we iterate
+    each US state/territory independently to capture all ~234k obituaries.
 
     Safe to re-run — duplicates are silently ignored.
-    Resumes from the last saved checkpoint by default.
+    Resumes from the last saved checkpoint per state by default.
 
     Examples:
 
-      Initial seed (resume-safe):
+      Initial seed (resume-safe, all states):
         python -m app.main backfill-obituaries
 
-      Force restart from page 1:
+      Single state:
+        python -m app.main backfill-obituaries --states TX
+
+      Force restart from page 1 for all states:
         python -m app.main backfill-obituaries --no-resume
 
-      Resume manually from page 200:
-        python -m app.main backfill-obituaries --start-page 200
-
-      Raise concurrency (after testing at default):
+      Raise concurrency:
         OBITUARY_BACKFILL_CONCURRENCY=40 python -m app.main backfill-obituaries
     """
     from app.jobs.backfill_obituaries_job import run_backfill
+    state_list = [s.strip().upper() for s in states.split(",")] if states else None
     sys.exit(
         run_backfill(
             date_filter=date_filter,
             concurrency=concurrency,
             resume=not no_resume,
             start_page=start_page,
+            states=state_list,
         )
     )
 
