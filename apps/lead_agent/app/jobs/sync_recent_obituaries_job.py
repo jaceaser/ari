@@ -19,7 +19,7 @@ from typing import Optional
 
 from app.config import get_settings
 from app.db.session import get_db
-from app.parsers.obituary_parser import parse_response
+from app.parsers.obituary_parser import parse_records
 from app.repositories.obituary_repo import ObituaryRepo
 from app.services.obituary_scraper import ObituaryScraper
 
@@ -126,14 +126,14 @@ def _fetch_and_insert(
     time.sleep(random.uniform(delay_ms_min, delay_ms_max) / 1000.0)
 
     try:
-        text, source_url = scraper.fetch_page(date_filter, page)
+        records, source_url = scraper.fetch_page(date_filter, page)
     except Exception as exc:
         return 0, 0, 0, 0, str(exc)
 
-    if text is None:
+    if records is None:
         return 0, 0, 0, 0, None
 
-    rows, malformed = parse_response(text)
+    rows, malformed = parse_records(records)
     if not rows:
         return 0, 0, 0, malformed, None
 
