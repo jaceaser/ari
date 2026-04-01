@@ -130,19 +130,28 @@ SCRAPE_TIMEOUT_SECONDS=90
 MAX_CONCURRENT_SCRAPES=5    # Use 50 for bulk runs
 ```
 
-## Scheduling (Not Yet Deployed)
+## Scheduling
 
-The agent is designed to run as **Azure Container Apps Jobs** — one job per cadence group:
+Runs as **Azure Container Apps Jobs** in `rg-ari-prod` / `cae-ari-prod`:
 
 | Job Name | Cron | Command |
 |---|---|---|
-| `lead-agent-weekly` | `0 6 * * 1` (Mon 6am) | `monthly-refresh --lead-types pre_foreclosure` |
-| `lead-agent-biweekly` | `0 6 1,15 * *` (1st & 15th) | `monthly-refresh --lead-types fsbo,as_is` |
-| `lead-agent-monthly` | `0 6 1 * *` (1st of month) | `monthly-refresh --lead-types land,tired_landlord,fixer_upper,subject_to` |
+| `lead-agent-weekly` | `0 6 * * 1` (Mon 6am UTC) | `monthly-refresh --lead-types pre_foreclosure` |
+| `lead-agent-biweekly` | `0 6 1,15 * *` (1st & 15th 6am UTC) | `monthly-refresh --lead-types fsbo,as_is` |
+| `lead-agent-monthly` | `0 6 1 * *` (1st of month 6am UTC) | `monthly-refresh --lead-types land,tired_landlord,fixer_upper,subject_to` |
+| `lead-agent-obituary-sync` | `0 6 * * *` (daily 6am UTC) | `sync-recent-obituaries --overlap-days 7` |
 
 Container image: `ariprodacr.azurecr.io/ari-lead-agent:latest`
 
-See deployment docs for provisioning steps.
+To trigger a job manually:
+```bash
+az containerapp job start -n lead-agent-weekly -g rg-ari-prod
+```
+
+To view execution history:
+```bash
+az containerapp job execution list -n lead-agent-weekly -g rg-ari-prod -o table
+```
 
 ## Local Development
 
