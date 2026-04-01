@@ -158,6 +158,115 @@ python -m app.main seed
 python -m app.main on-demand --geo harris-county-tx --lead-type pre_foreclosure
 ```
 
+## Obituary Ingestion Pipeline
+
+Scrapes obituary listings from **Dignity Memorial** via ScrapingBee AI extraction and stores
+them in PostgreSQL. Two modes: a one-time 365-day backfill and a recurring daily sync.
+
+### How It Works
+
+```
+Dignity Memorial listing page (pageNo=1, 2, …)
+        │
+        ▼
+ScrapingBee AI extraction → JSON array (name, city, state, dob, dod, link)
+        │
+        ▼
+obituary_parser.py  (normalize state, parse dates, validate links)
+        │
+        ▼
+PostgreSQL `obituaries` table  (INSERT … ON CONFLICT DO NOTHING)
+```
+
+### Database Tables
+
+| Table | Purpose |
+|---|---|
+| `obituaries` | One row per person — name, city, state, DOB, DOD, obituary link |
+| `obituary_backfill_state` | Checkpoint: last completed page per date-filter so the backfill can resume |
+
+**Deduplication (two layers):**
+1. `uq_obituary_link` — partial unique index on `obituary_link` (primary key per person)
+2. `uq_obituary` — composite constraint on `(full_name, city, state, source_site, source_url)`
+
+### Run the Migration
+
+```bash
+cd apps/lead_agent
+python -m app.main migrate
+# verify: alembic current  →  f2d9e5b3c108 (head)
+```
+
+### One-Time Initial Backfill (365 days, ~234k obituaries)
+
+```bash
+python -m app.main backfill-obituaries
+```
+
+- Defaults: 365-day filter, **25 concurrent workers**, 500–2000 ms jitter per worker
+- Checkpoint is written after every 25-page batch — safe to interrupt and resume
+- Logs every page: `page_done page=N rows_parsed=50 inserted=50 deduped=0`
+- Stops automatically when a page returns 0 rows
+
+**Resume after interruption** (automatic — just re-run the same command):
+```bash
+python -m app.main backfill-obituaries
+# resumes from last checkpoint
+```
+
+**Force restart from page 1:**
+```bash
+python -m app.main backfill-obituaries --no-resume
+```
+
+**Resume from a specific page:**
+```bash
+python -m app.main backfill-obituaries --start-page 300
+```
+
+### Daily Sync
+
+```bash
+# Standard daily (last 1 day)
+python -m app.main sync-recent-obituaries
+
+# 3-day overlap to catch delayed postings
+python -m app.main sync-recent-obituaries --overlap-days 3
+```
+
+Safe to run more than once — duplicates are silently ignored.
+
+**Suggested cron:**
+```
+0 6 * * * cd /app && python -m app.main sync-recent-obituaries --overlap-days 3
+```
+
+### Tuning Concurrency
+
+| Setting | Default | Env var |
+|---|---|---|
+| Backfill workers | **25** | `OBITUARY_BACKFILL_CONCURRENCY` |
+| Daily sync workers | 5 | `OBITUARY_CONCURRENCY` |
+| Request delay (jitter) | 500–2000 ms | `OBITUARY_REQUEST_DELAY_MS_MIN` / `MAX` |
+
+Watch for `scrapingbee_rate_limited` in the logs. If you see it repeatedly, reduce concurrency:
+```bash
+OBITUARY_BACKFILL_CONCURRENCY=10 python -m app.main backfill-obituaries
+```
+
+Do not exceed 50 workers (ScrapingBee plan limit).
+
+### Environment Variables (Obituary)
+
+```
+OBITUARY_BACKFILL_CONCURRENCY=25   # workers for the 365-day backfill
+OBITUARY_CONCURRENCY=5             # workers for the daily sync
+OBITUARY_REQUEST_DELAY_MS_MIN=500  # min jitter delay per worker (ms)
+OBITUARY_REQUEST_DELAY_MS_MAX=2000 # max jitter delay per worker (ms)
+```
+
+---
+
 ## Stats (First Batch Run)
 
 - 807 scrape runs completed

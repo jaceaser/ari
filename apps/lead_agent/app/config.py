@@ -49,6 +49,13 @@ class Settings(BaseSettings):
     cache_ttl_days_tier3: int = Field(30, alias="CACHE_TTL_DAYS_TIER3")
     max_concurrent_scrapes: int = Field(5, alias="MAX_CONCURRENT_SCRAPES")
 
+    # Obituary scraper — backfill vs daily sync have different default concurrency
+    # because the initial 365-day backfill has ~234k records across many pages.
+    obituary_backfill_concurrency: int = Field(25, alias="OBITUARY_BACKFILL_CONCURRENCY")
+    obituary_concurrency: int = Field(5, alias="OBITUARY_CONCURRENCY")
+    obituary_request_delay_ms_min: int = Field(500, alias="OBITUARY_REQUEST_DELAY_MS_MIN")
+    obituary_request_delay_ms_max: int = Field(2000, alias="OBITUARY_REQUEST_DELAY_MS_MAX")
+
     # Observability
     app_insights_connection_string: Optional[str] = Field(
         None, alias="APPLICATIONINSIGHTS_CONNECTION_STRING"

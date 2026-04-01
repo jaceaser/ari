@@ -65,6 +65,80 @@ def seed():
     click.echo("Seed complete.")
 
 
+@cli.command("backfill-obituaries")
+@click.option(
+    "--date-filter", "date_filter", default=365, show_default=True,
+    help="Dignity Memorial creationDateFilter (days back to seed).",
+)
+@click.option(
+    "--concurrency", default=None, type=int,
+    help="Worker threads (default: OBITUARY_BACKFILL_CONCURRENCY env var, factory 25).",
+)
+@click.option(
+    "--no-resume", "no_resume", is_flag=True, default=False,
+    help="Ignore checkpoint and start from page 1.",
+)
+@click.option(
+    "--start-page", "start_page", default=None, type=int,
+    help="Start from a specific page number, overriding the saved checkpoint.",
+)
+def backfill_obituaries(date_filter: int, concurrency: int, no_resume: bool, start_page: int):
+    """One-time 365-day backfill of Dignity Memorial obituaries.
+
+    Safe to re-run — duplicates are silently ignored.
+    Resumes from the last saved checkpoint by default.
+
+    Examples:
+
+      Initial seed (resume-safe):
+        python -m app.main backfill-obituaries
+
+      Force restart from page 1:
+        python -m app.main backfill-obituaries --no-resume
+
+      Resume manually from page 200:
+        python -m app.main backfill-obituaries --start-page 200
+
+      Raise concurrency (after testing at default):
+        OBITUARY_BACKFILL_CONCURRENCY=40 python -m app.main backfill-obituaries
+    """
+    from app.jobs.backfill_obituaries_job import run_backfill
+    sys.exit(
+        run_backfill(
+            date_filter=date_filter,
+            concurrency=concurrency,
+            resume=not no_resume,
+            start_page=start_page,
+        )
+    )
+
+
+@cli.command("sync-recent-obituaries")
+@click.option(
+    "--overlap-days", "overlap_days", default=1, show_default=True,
+    help="creationDateFilter: 1 = strict daily, 3 = 3-day overlap for delayed postings.",
+)
+@click.option(
+    "--concurrency", default=None, type=int,
+    help="Worker threads (default: OBITUARY_CONCURRENCY env var, factory 5).",
+)
+def sync_recent_obituaries(overlap_days: int, concurrency: int):
+    """Daily sync — pulls recent Dignity Memorial obituaries.
+
+    Safe to run multiple times — duplicates are ignored.
+
+    Examples:
+
+      Standard daily run:
+        python -m app.main sync-recent-obituaries
+
+      3-day overlap (catch delayed postings):
+        python -m app.main sync-recent-obituaries --overlap-days 3
+    """
+    from app.jobs.sync_recent_obituaries_job import run_sync
+    sys.exit(run_sync(overlap_days=overlap_days, concurrency=concurrency))
+
+
 @cli.command("migrate")
 def migrate():
     """Run Alembic migrations to head."""

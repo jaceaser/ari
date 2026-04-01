@@ -3,12 +3,14 @@ SQLAlchemy 2.x ORM models — map directly to Azure SQL tables.
 """
 from __future__ import annotations
 
-from datetime import datetime
+import uuid
+from datetime import date, datetime
 from typing import Optional
 
 from sqlalchemy import (
     BigInteger,
     Boolean,
+    Date,
     DateTime,
     ForeignKey,
     Index,
@@ -20,6 +22,7 @@ from sqlalchemy import (
     UniqueConstraint,
     func,
 )
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -302,6 +305,59 @@ class UserPropertyMap(Base):
         Index("ix_upm_user", "user_id"),
         Index("ix_upm_property", "property_id"),
         Index("ix_upm_stage", "pipeline_stage_id"),
+    )
+
+
+class Obituary(Base):
+    __tablename__ = "obituaries"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    full_name: Mapped[str] = mapped_column(Text, nullable=False)
+    city: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    state: Mapped[Optional[str]] = mapped_column(String(2), nullable=True)
+    date_of_birth: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    date_of_death: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    obituary_link: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # published_date kept for backward compatibility — mirrors date_of_death
+    published_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    source_site: Mapped[str] = mapped_column(Text, nullable=False)
+    source_url: Mapped[str] = mapped_column(Text, nullable=False)
+    scraped_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "full_name", "city", "state", "source_site", "source_url",
+            name="uq_obituary",
+        ),
+        # Partial unique index on obituary_link — the per-person dedup key.
+        # Defined in Alembic migration; declared here as an Index so SQLAlchemy
+        # is aware of it, but it won't auto-create it (use_alter handled by migration).
+        Index("ix_obituaries_state", "state"),
+        Index("ix_obituaries_published_date", "published_date"),
+        Index("ix_obituaries_date_of_death", "date_of_death"),
+        Index("ix_obituaries_scraped_at", "scraped_at"),
+    )
+
+
+class ObituaryBackfillState(Base):
+    """Checkpoint table so the 365-day backfill can resume after interruption."""
+
+    __tablename__ = "obituary_backfill_state"
+
+    date_filter: Mapped[int] = mapped_column(Integer, primary_key=True)
+    last_completed_page: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )
 
 
