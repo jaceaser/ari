@@ -442,6 +442,25 @@ class SessionsCosmosClient:
                 return item
         return 0
 
+    async def get_user_prompt_count_since(self, user_id: str, since_iso: str) -> int:
+        """Count user-role prompt messages since a specific ISO timestamp."""
+        query = (
+            "SELECT VALUE COUNT(1) FROM c WHERE c.type = 'message' "
+            "AND c.userId = @userId AND c.role = 'user' "
+            "AND c.createdAt >= @since"
+        )
+        params = [
+            {"name": "@userId", "value": user_id},
+            {"name": "@since", "value": since_iso},
+        ]
+        async with self._client() as client:
+            container = await self._container(client)
+            async for item in container.query_items(
+                query=query, parameters=params, partition_key=user_id
+            ):
+                return int(item or 0)
+        return 0
+
     # ── Documents ──
 
     async def save_document(
@@ -741,6 +760,22 @@ class SessionsCosmosClient:
             container = await self._container(client)
             query = "SELECT * FROM c WHERE c.type = 'user' AND c.stripe_customer_id = @cid"
             params = [{"name": "@cid", "value": customer_id}]
+            async for item in container.query_items(
+                query=query, parameters=params
+            ):
+                return item
+            return None
+
+    async def find_user_by_subscription_id(self, subscription_id: str) -> Optional[dict[str, Any]]:
+        """Find a user document by Stripe subscription ID (cross-partition query).
+
+        Fallback for users whose stripe_customer_id was never written (e.g. migrated
+        from Redis with partial data), so webhook events can still be matched.
+        """
+        async with self._client() as client:
+            container = await self._container(client)
+            query = "SELECT * FROM c WHERE c.type = 'user' AND c.subscription_id = @sid"
+            params = [{"name": "@sid", "value": subscription_id}]
             async for item in container.query_items(
                 query=query, parameters=params
             ):

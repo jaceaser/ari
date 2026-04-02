@@ -102,6 +102,9 @@ async def _handle_subscription_update(cosmos, sub: dict) -> None:
 
     user = await cosmos.find_user_by_stripe_customer(customer_id)
     if not user:
+        # Fallback: some users have subscription_id but no stripe_customer_id (e.g. Redis migration)
+        user = await cosmos.find_user_by_subscription_id(sub.get("id", ""))
+    if not user:
         logger.warning("No user found for Stripe customer %s", customer_id)
         return
 
@@ -132,6 +135,8 @@ async def _handle_subscription_deleted(cosmos, sub: dict) -> None:
         return
 
     user = await cosmos.find_user_by_stripe_customer(customer_id)
+    if not user:
+        user = await cosmos.find_user_by_subscription_id(sub.get("id", ""))
     if not user:
         return
 
