@@ -114,8 +114,10 @@ async def _handle_subscription_update(cosmos, sub: dict) -> None:
         "subscription_expires_at": _format_timestamp(sub.get("current_period_end")),
     }
 
-    # Read tier from subscription or price metadata (e.g. metadata: {tier: "elite"})
-    tier = _extract_tier(sub)
+    # Derive tier from Stripe metadata if present, otherwise fall back to plan name.
+    # Without this fallback, subscriptions without a "tier" metadata key on the
+    # Stripe price/product would write plan but leave tier=None in Cosmos DB.
+    tier = _extract_tier(sub) or _PLAN_TO_TIER.get(stripe_data["plan"], "")
     if tier:
         stripe_data["tier"] = tier
 
@@ -263,8 +265,8 @@ def _extract_plan(sub: dict) -> str:
 
 _PLAN_TO_TIER = {
     "ari_elite": "elite",
-    "ari_pro": "pro",
-    "ari_lite": "basic",
+    "ari_pro": "elite",
+    "ari_lite": "lite",
 }
 
 
