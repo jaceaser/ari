@@ -50,8 +50,9 @@ SELECT
            p.address_state, ' ', COALESCE(p.address_zip, ''))          AS "Full Address",
     po.zillow_url                                                      AS "Property URL"
 FROM  properties p
-JOIN  property_tag_map ptm ON p.id     = ptm.property_id
+JOIN  property_tag_map ptm ON p.id       = ptm.property_id
 JOIN  property_tags    pt  ON ptm.tag_id = pt.id
+LEFT JOIN geographies  g   ON p.geography_id = g.id
 LEFT JOIN LATERAL (
     SELECT price, zillow_url
     FROM   property_observations
@@ -59,7 +60,10 @@ LEFT JOIN LATERAL (
     ORDER  BY observed_at DESC
     LIMIT  1
 ) po ON true
-WHERE p.address_city  ILIKE %(city)s
+WHERE (
+    p.address_city ILIKE %(city)s
+    OR g.name      ILIKE %(city)s
+)
   AND p.address_state = %(state)s
   AND pt.slug         = %(tag_slug)s
 ORDER BY po.price ASC NULLS LAST
