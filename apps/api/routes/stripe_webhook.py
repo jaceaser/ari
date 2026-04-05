@@ -211,6 +211,13 @@ async def _handle_checkout_completed(cosmos, session: dict) -> None:
     await cosmos.update_user_subscription(user_id, stripe_data)
     logger.info("Linked Stripe customer %s to user %s", customer_id, user_id)
 
+    if customer_email:
+        from routes.magic_link import send_welcome_email
+        try:
+            await send_welcome_email(customer_email)
+        except Exception:
+            logger.exception("Failed to send welcome email to %s", customer_email)
+
 
 async def _handle_invoice_payment_succeeded(cosmos, invoice: dict) -> None:
     """Confirm subscription as active when a payment succeeds."""

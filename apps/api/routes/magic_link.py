@@ -55,15 +55,70 @@ async def _send_email(email: str, link: str) -> None:
     client = EmailClient.from_connection_string(endpoint)
     message = {
         "senderAddress": sender,
+        "replyTo": [{"address": "info@reilabs.ai"}],
         "recipients": {"to": [{"address": email}]},
         "content": {
             "subject": "Sign in to ARI",
-            "plainText": f"Click this link to sign in:\n\n{link}\n\nThis link expires in 15 minutes.",
-            "html": (
-                "<p>Click the link below to sign in to ARI:</p>"
-                f'<p><a href="{link}">Sign in to ARI</a></p>'
-                "<p>This link expires in 15 minutes. If you didn't request this, ignore this email.</p>"
-            ),
+            "plainText": f"Click this link to sign in to ARI:\n\n{link}\n\nThis link expires in 15 minutes. If you didn't request this, ignore this email.\n\n— The REI Labs Team",
+            "html": f"""<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background-color:#F4F4F6;font-family:Arial,Helvetica,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="background-color:#F4F4F6;">
+    <tr>
+      <td align="center" style="padding:48px 20px;">
+        <table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="max-width:560px;">
+
+          <!-- Heading -->
+          <tr>
+            <td style="padding-bottom:24px;">
+              <span style="font-size:26px;font-weight:700;color:#0A0F19;letter-spacing:-0.5px;">Your login link</span>
+            </td>
+          </tr>
+
+          <!-- Card -->
+          <tr>
+            <td style="background-color:#FFFFFF;border:1px solid #E6E6E9;border-radius:8px;overflow:hidden;">
+              <!-- Gold top stripe -->
+              <div style="height:4px;background-color:#F7C35D;"></div>
+              <div style="padding:36px 40px 40px;">
+
+                <p style="margin:0 0 32px;font-size:15px;color:#757D94;line-height:1.6;">Click the button below to sign in to ARI. This link expires in 15 minutes.</p>
+
+                <!-- CTA Button -->
+                <table cellpadding="0" cellspacing="0" role="presentation" style="margin-bottom:32px;">
+                  <tr>
+                    <td style="background-color:#F7C35D;border-radius:6px;">
+                      <a href="{link}" style="display:inline-block;padding:13px 28px;font-size:15px;font-weight:600;color:#191F33;text-decoration:none;letter-spacing:0.1px;">Sign in to ARI</a>
+                    </td>
+                  </tr>
+                </table>
+
+                <!-- Fallback URL -->
+                <p style="margin:0 0 24px;font-size:13px;color:#757D94;line-height:1.6;">Or copy this link into your browser:<br>
+                  <a href="{link}" style="color:#757D94;text-decoration:underline;word-break:break-all;">{link}</a>
+                </p>
+
+                <hr style="border:none;border-top:1px solid #E6E6E9;margin:0 0 24px;">
+
+                <p style="margin:0;font-size:13px;color:#757D94;line-height:1.6;">If you didn't request this, you can safely ignore this email.</p>
+              </div>
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td style="padding-top:24px;">
+              <p style="margin:0;font-size:13px;color:#757D94;">— The REI Labs Team</p>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>""",
         },
     }
 
@@ -74,6 +129,137 @@ async def _send_email(email: str, link: str) -> None:
     except Exception:
         logger.exception("Failed to send magic link email to %s", email)
         raise
+
+
+async def send_welcome_email(email: str) -> None:
+    """Send a welcome email to a new subscriber via Azure Communication Services."""
+    endpoint = os.getenv("AZURE_COMMUNICATION_ENDPOINT", "").strip()
+    if not endpoint:
+        logger.warning("AZURE_COMMUNICATION_ENDPOINT not set; skipping welcome email for %s", email)
+        return
+
+    try:
+        from azure.communication.email import EmailClient
+    except ImportError:
+        logger.error("azure-communication-email not installed; cannot send welcome email")
+        return
+
+    sender = os.getenv("AZURE_COMMUNICATION_SENDER", "DoNotReply@reilabs.ai")
+
+    client = EmailClient.from_connection_string(endpoint)
+    message = {
+        "senderAddress": sender,
+        "replyTo": [{"address": "info@reilabs.ai"}],
+        "recipients": {"to": [{"address": email}]},
+        "content": {
+            "subject": "Welcome to ARI — let's get you started",
+            "plainText": (
+                "Welcome to ARI!\n\n"
+                "Here are a few resources to help you hit the ground running:\n\n"
+                "Guides — step-by-step walkthroughs for common workflows:\n"
+                "https://reilabs.ai/guides\n\n"
+                "Prompt Library — ready-to-use prompts to get the most out of ARI:\n"
+                "https://reilabs.ai/prompts\n\n"
+                "Usage Tips — get the most value from your subscription:\n"
+                "https://reilabs.ai/usage\n\n"
+                "Contact — have a question? We're here to help:\n"
+                "https://reilabs.ai/contact\n\n"
+                "— The REI Labs Team"
+            ),
+            "html": """<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background-color:#F4F4F6;font-family:Arial,Helvetica,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="background-color:#F4F4F6;">
+    <tr>
+      <td align="center" style="padding:48px 20px;">
+        <table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="max-width:560px;">
+
+          <!-- Heading -->
+          <tr>
+            <td style="padding-bottom:24px;">
+              <span style="font-size:26px;font-weight:700;color:#0A0F19;letter-spacing:-0.5px;">Welcome!</span>
+            </td>
+          </tr>
+
+          <!-- Card -->
+          <tr>
+            <td style="background-color:#FFFFFF;border:1px solid #E6E6E9;border-radius:8px;overflow:hidden;">
+              <!-- Gold top stripe -->
+              <div style="height:4px;background-color:#F7C35D;"></div>
+              <div style="padding:36px 40px 40px;">
+
+                <p style="margin:0 0 32px;font-size:15px;color:#757D94;line-height:1.6;">Here are a few resources to help you hit the ground running.</p>
+
+                <hr style="border:none;border-top:1px solid #E6E6E9;margin:0 0 28px;">
+
+                <!-- Resource: Guides -->
+                <table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="margin-bottom:20px;">
+                  <tr>
+                    <td style="border-left:3px solid #F7C35D;padding-left:14px;">
+                      <p style="margin:0 0 4px;font-size:15px;font-weight:600;color:#0A0F19;">Guides</p>
+                      <p style="margin:0 0 8px;font-size:14px;color:#757D94;line-height:1.5;">Step-by-step walkthroughs for common workflows.</p>
+                      <a href="https://reilabs.ai/guides" style="font-size:14px;color:#0A0F19;text-decoration:underline;">reilabs.ai/guides &rarr;</a>
+                    </td>
+                  </tr>
+                </table>
+
+                <table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="margin-bottom:20px;">
+                  <tr>
+                    <td style="border-left:3px solid #F7C35D;padding-left:14px;">
+                      <p style="margin:0 0 4px;font-size:15px;font-weight:600;color:#0A0F19;">Prompt Library</p>
+                      <p style="margin:0 0 8px;font-size:14px;color:#757D94;line-height:1.5;">Ready-to-use prompts to get the most out of ARI.</p>
+                      <a href="https://reilabs.ai/prompts" style="font-size:14px;color:#0A0F19;text-decoration:underline;">reilabs.ai/prompts &rarr;</a>
+                    </td>
+                  </tr>
+                </table>
+
+                <table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="margin-bottom:20px;">
+                  <tr>
+                    <td style="border-left:3px solid #F7C35D;padding-left:14px;">
+                      <p style="margin:0 0 4px;font-size:15px;font-weight:600;color:#0A0F19;">Usage Tips</p>
+                      <p style="margin:0 0 8px;font-size:14px;color:#757D94;line-height:1.5;">Get the most value from your subscription.</p>
+                      <a href="https://reilabs.ai/usage" style="font-size:14px;color:#0A0F19;text-decoration:underline;">reilabs.ai/usage &rarr;</a>
+                    </td>
+                  </tr>
+                </table>
+
+                <table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="margin-bottom:28px;">
+                  <tr>
+                    <td style="border-left:3px solid #F7C35D;padding-left:14px;">
+                      <p style="margin:0 0 4px;font-size:15px;font-weight:600;color:#0A0F19;">Contact</p>
+                      <p style="margin:0 0 8px;font-size:14px;color:#757D94;line-height:1.5;">Have a question? We're here to help.</p>
+                      <a href="https://reilabs.ai/contact" style="font-size:14px;color:#0A0F19;text-decoration:underline;">reilabs.ai/contact &rarr;</a>
+                    </td>
+                  </tr>
+                </table>
+
+              </div>
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td style="padding-top:24px;">
+              <p style="margin:0;font-size:13px;color:#757D94;">— The REI Labs Team</p>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>""",
+        },
+    }
+
+    try:
+        poller = client.begin_send(message)
+        poller.result()
+        logger.info("Welcome email sent to %s", email)
+    except Exception:
+        logger.exception("Failed to send welcome email to %s", email)
 
 
 @magic_link_bp.post("/auth/magic-link/send")
