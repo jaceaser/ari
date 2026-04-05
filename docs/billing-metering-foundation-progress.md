@@ -98,30 +98,30 @@ SSE to client          usage_events table
 - [ ] **Pending human review**: verify pricing numbers against actual Azure/ScrapingBee invoices
 
 ### Phase 1C — Core Metering Service
-- [ ] `billing/metering_service.py` — `start_event`, `complete_event`, `fail_event`
-- [ ] Context manager `metering.track()`
-- [ ] Idempotency guard on `complete_event` (execution_id deduplication)
-- [ ] Failure isolation (metering errors never propagate to callers)
-- [ ] `tests/billing/test_metering.py`
+- [x] `billing/metering_service.py` — `start_event`, `complete_event`, `fail_event`
+- [x] Context manager `metering.track()`
+- [x] Idempotency guard on `complete_event` (skips already-completed events)
+- [x] Failure isolation (metering errors never propagate to callers)
+- [x] Bug fix: `fail_event` call in `track()` except block wrapped in inner try/except so fail_event errors don't replace original exception
+- [x] `tests/billing/test_metering.py` — 34 tests passing
 
 ### Phase 1D — Integration into Existing Call Paths
-- [ ] `app.py` — instrument `_classify_user_intent()` (gpt-5-mini)
-- [ ] `app.py` — instrument MCP planning rounds in `_run_mcp_tool_orchestration()`
-- [ ] `app.py` — instrument each tool dispatch in the orchestration loop
-- [ ] `routes/sessions.py` — instrument main streaming call in `_generation_task()`
-- [ ] Verify no user-facing behaviour changed
+- [x] `app.py` — instrument `_classify_user_intent()` (gpt-5-mini) with start/complete/fail
+- [x] `app.py` — instrument MCP planning rounds in `_run_mcp_tool_orchestration()` with exact usage counts
+- [x] `app.py` — instrument each tool dispatch (complete on success, fail on error)
+- [x] `routes/sessions.py` — instrument main streaming call in `_generation_task()` (tiktoken output estimate)
+- [x] Verified: metering is a no-op when METERING_DATABASE_URL unset; no user-facing behaviour changed
 
 ### Phase 1E — Admin Reporting Service
-- [ ] `billing/reporting_service.py` — 9 query functions
-- [ ] `billing/admin_routes.py` — 7 admin endpoints under `/admin/usage/*`
-- [ ] `@require_admin` decorator (ADMIN_API_KEY env var stub)
-- [ ] Register `admin_bp` in `app.py`
-- [ ] `tests/billing/test_reporting.py`
+- [x] `billing/reporting_service.py` — 9 query functions (summary, by-user, by-action-type, by-action-name, by-model, by-tool, top-users, top-actions, timeseries)
+- [x] `billing/admin_routes.py` — 7 admin endpoints under `/admin/usage/*`
+- [x] `@require_admin` decorator (X-Admin-Key header or Bearer token vs ADMIN_API_KEY env)
+- [x] Register `admin_bp` in `app.py`
+- [x] `tests/billing/test_reporting.py` — 19 tests passing
 
 ### Phase 1F — Documentation
 - [x] `docs/codebase-discovery-notes.md`
-- [x] `docs/billing-metering-foundation-progress.md` (this file)
-- [ ] Update after 1C, 1D, 1E complete
+- [x] `docs/billing-metering-foundation-progress.md` (this file — updated)
 
 ---
 
