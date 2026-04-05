@@ -14,6 +14,7 @@ import logging
 import re
 import time
 import uuid
+from datetime import datetime, timezone
 
 from quart import Response, jsonify, request
 
@@ -22,6 +23,21 @@ from . import sessions_bp
 import httpx
 
 logger = logging.getLogger("api.sessions")
+FREE_DAILY_PROMPT_LIMIT = 5
+
+
+def _normalize_tier(raw_tier: str | None) -> str:
+    value = (raw_tier or "").strip().lower()
+    mapping = {
+        "ari_lite": "lite",
+        "ari_elite": "elite",
+        "ari_pro": "elite",
+        "basic": "lite",
+        "pro": "elite",
+        "lite": "lite",
+        "elite": "elite",
+    }
+    return mapping.get(value, "free")
 
 
 async def _extract_document_texts(documents: list[dict]) -> list[str]:
@@ -408,6 +424,26 @@ async def send_message(session_id: str):
     if offtopic:
         return jsonify({"error": "off_topic", "detail": offtopic}), 422
 
+    # Enforce free-tier daily prompt limits server-side.
+    from app import _get_user_tier
+    tier = _normalize_tier(await _get_user_tier(user_id))
+    if tier == "free":
+        start_of_day_utc = datetime.now(timezone.utc).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
+        prompts_used_today = await cosmos.get_user_prompt_count_since(
+            user_id=user_id,
+            since_iso=start_of_day_utc.isoformat(),
+        )
+        if prompts_used_today >= FREE_DAILY_PROMPT_LIMIT:
+            return jsonify({
+                "error": "Daily prompt limit reached",
+                "code": "FREE_TIER_LIMIT_REACHED",
+                "tier": "free",
+                "daily_prompt_limit": FREE_DAILY_PROMPT_LIMIT,
+                "prompts_used_today": prompts_used_today,
+            }), 429
+
     # Extract optional image URLs (uploaded to Azure Blob by the frontend)
     raw_images = body.get("images") or []
     images: list[str] = [
@@ -492,7 +528,20 @@ async def send_message(session_id: str):
             AZURE_OPENAI_DEPLOYMENT,
             ChatCompletionRequest,
             _truncate_to_token_budget,
+            _count_message_tokens,
         )
+
+        # Metering setup — defined at function scope so finally block can access.
+        # All metering calls are no-ops if billing.metering_service is unavailable.
+        try:
+            import billing.metering_service as _metering
+        except Exception:
+            _metering = None  # type: ignore[assignment]
+
+        _stream_event_id = None
+        _stream_t0 = time.time()
+        _stream_input_tokens: int | None = None
+        _generation_error: str | None = None
 
         stream_id = f"chatcmpl-{uuid.uuid4().hex}"
         created = int(time.time())
@@ -514,6 +563,21 @@ async def send_message(session_id: str):
 
             completion_messages = _inject_server_system_prompts(completion_messages)
             completion_messages = _truncate_to_token_budget(completion_messages)
+
+            # Start streaming metering event now that we have the final
+            # completion_messages — this gives us an accurate input token estimate.
+            if _metering:
+                try:
+                    _stream_input_tokens = _count_message_tokens(completion_messages)
+                except Exception:
+                    pass
+                _stream_event_id = await _metering.start_event(
+                    user_id=user_id,
+                    action_type="chat",
+                    action_name=AZURE_OPENAI_DEPLOYMENT,
+                    session_id=session_id,
+                    metadata={"session_id": session_id},
+                )
 
             dummy_request = ChatCompletionRequest(
                 model=AZURE_OPENAI_DEPLOYMENT,
@@ -651,6 +715,7 @@ async def send_message(session_id: str):
                 logger.exception("Auto DOCX fallback failed")
 
         except Exception as exc:
+            _generation_error = str(exc)
             logger.exception("Streaming error in session %s", session_id)
             chunk_queue.put_nowait(_sse_json({"error": {"type": "api_error", "message": str(exc)}}))
         finally:
@@ -669,6 +734,34 @@ async def send_message(session_id: str):
             await _detect_and_save_lead_runs(
                 cosmos, user_id, session_id, mcp_tool_results
             )
+
+            # Complete or fail the streaming metering event.
+            # Wrapped in try/except — metering must never crash the task.
+            if _metering and _stream_event_id:
+                try:
+                    _elapsed_ms = int((time.time() - _stream_t0) * 1000)
+                    if _generation_error:
+                        await _metering.fail_event(
+                            _stream_event_id,
+                            error=_generation_error,
+                            duration_ms=_elapsed_ms,
+                        )
+                    else:
+                        try:
+                            import tiktoken as _tiktoken
+                            _enc = _tiktoken.get_encoding("o200k_base")
+                            _output_tokens = len(_enc.encode(full_response_text)) if full_response_text else 0
+                        except Exception:
+                            _output_tokens = len(full_response_text) // 4 if full_response_text else 0
+                        await _metering.complete_event(
+                            _stream_event_id,
+                            model_name=AZURE_OPENAI_DEPLOYMENT,
+                            input_tokens=_stream_input_tokens,
+                            output_tokens=_output_tokens,
+                            duration_ms=_elapsed_ms,
+                        )
+                except Exception:
+                    logger.exception("Failed to record streaming metering event for session %s", session_id)
 
     # Start generation as an independent task — it runs to completion regardless
     # of whether the HTTP client remains connected.

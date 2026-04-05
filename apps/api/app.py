@@ -528,7 +528,7 @@ def _add_security_headers(response: Response) -> Response:
 
 
 # Paths that use JWT auth instead of API key auth
-_JWT_AUTH_PREFIXES = ("/sessions", "/lead-runs", "/auth/", "/documents", "/data", "/billing")
+_JWT_AUTH_PREFIXES = ("/sessions", "/lead-runs", "/auth/", "/documents", "/data", "/billing", "/subscriptions")
 
 
 @app.before_request
@@ -1426,24 +1426,17 @@ _ALL_TOOL_NAMES: frozenset[str] = frozenset(
 _TIER_TOOLS: dict[str, frozenset[str]] = {
     "admin": _ALL_TOOL_NAMES,
     "elite": _ALL_TOOL_NAMES,
-    "pro": frozenset({
+    "pro": _ALL_TOOL_NAMES,
+    "lite": frozenset({
         "mcp_integration_config",
         "mcp_education_context",
         "mcp_comps_context",
-        "mcp_bricked_comps",
-        "mcp_leads_context",
-        "mcp_attorneys_context",
         "mcp_strategy_context",
         "mcp_contracts_context",
-        "mcp_buyers_context",
-        "mcp_buyers_search",
-        "mcp_extract_city_state",
         "mcp_extract_address",
         "mcp_offtopic_context",
         "mcp_build_retrieval_query",
-        "mcp_infer_lead_type",
         "generate_document",
-        "mcp_stack_lists",
     }),
     "basic": frozenset({
         "mcp_integration_config",
@@ -1493,7 +1486,15 @@ async def _get_user_tier(user_id: str) -> str:
         sub = await cosmos.get_user_subscription(user_id)
         tier = ((sub or {}).get("tier") or "").strip().lower()
         # Normalize ari_* prefixed values (from metadata or legacy plan field)
-        _plan_map = {"ari_elite": "elite", "ari_pro": "pro", "ari_lite": "basic"}
+        _plan_map = {
+            "ari_elite": "elite",
+            "ari_pro": "elite",
+            "ari_lite": "lite",
+            "elite": "elite",
+            "pro": "elite",
+            "lite": "lite",
+            "basic": "lite",
+        }
         tier = _plan_map.get(tier, tier)
         # Fall back to deriving tier from plan for migrated users that have plan but no tier
         if not tier:
@@ -1603,7 +1604,7 @@ _ROUTE_TOOL_HINT: dict[str, str] = {
 }
 
 
-async def _classify_user_intent(prompt: str) -> str | None:
+async def _classify_user_intent(prompt: str, user_id: str | None = None) -> str | None:
     """
     Classify the user prompt into a route.
 
@@ -1629,6 +1630,19 @@ async def _classify_user_intent(prompt: str) -> str | None:
 
     # Fall back to gpt-5-mini
     try:
+        import billing.metering_service as _metering
+        _classify_event_id = await _metering.start_event(
+            user_id=user_id or "unknown",
+            action_type="chat",
+            action_name="intent-classification",
+            metadata={"model": AZURE_OPENAI_CLASSIFICATION_MODEL},
+        )
+    except Exception:
+        _metering = None  # type: ignore[assignment]
+        _classify_event_id = None
+
+    _classify_t0 = time.time()
+    try:
         client = get_azure_client()
         resp = await client.chat.completions.create(
             model=AZURE_OPENAI_CLASSIFICATION_MODEL,
@@ -1639,10 +1653,25 @@ async def _classify_user_intent(prompt: str) -> str | None:
             max_completion_tokens=10,
             temperature=0,
         )
+        _usage = getattr(resp, "usage", None)
+        if _metering:
+            await _metering.complete_event(
+                _classify_event_id,
+                model_name=AZURE_OPENAI_CLASSIFICATION_MODEL,
+                input_tokens=getattr(_usage, "prompt_tokens", None),
+                output_tokens=getattr(_usage, "completion_tokens", None),
+                duration_ms=int((time.time() - _classify_t0) * 1000),
+            )
         route = (resp.choices[0].message.content or "").strip()
         logger.info("[classify] gpt-5-mini → %r", route)
         return route if route else None
     except Exception as exc:
+        if _metering:
+            await _metering.fail_event(
+                _classify_event_id,
+                error=str(exc),
+                duration_ms=int((time.time() - _classify_t0) * 1000),
+            )
         logger.warning("[classify] gpt-5-mini failed (%s); orchestration proceeds unguided", exc)
         return None
 
@@ -1672,7 +1701,7 @@ async def _run_mcp_tool_orchestration(
     client = get_azure_client()
 
     # Pre-classify the prompt so the model skips the classify round-trip.
-    route = await _classify_user_intent(prompt)
+    route = await _classify_user_intent(prompt, user_id=user_id)
     route_hint = _ROUTE_TOOL_HINT.get(route or "", "")
     orchestration_content = _ORCHESTRATION_SYSTEM_PROMPT
     if route_hint:
@@ -1688,13 +1717,41 @@ async def _run_mcp_tool_orchestration(
     logger.info("[MCP] Orchestration start — user_id=%s, %d tools available: %s",
                 user_id, len(allowed_tools), tool_names)
 
+    try:
+        import billing.metering_service as _metering
+    except Exception:
+        _metering = None  # type: ignore[assignment]
+
     for round_idx in range(MCP_TOOL_MAX_ROUNDS):
         # Truncate before each planning call — working_messages grows each round
         # as tool results are appended and can overflow the context window.
         budget_messages = _truncate_to_token_budget(working_messages)
+
+        # Metering: record the planning-round LLM call
+        _plan_event_id = None
+        _plan_t0 = time.time()
+        if _metering:
+            _plan_event_id = await _metering.start_event(
+                user_id=user_id or "unknown",
+                action_type="chat",
+                action_name="mcp-planning",
+                metadata={"round": round_idx, "model": AZURE_OPENAI_DEPLOYMENT},
+            )
+
         planning = await client.chat.completions.create(
             **_tool_completion_args(budget_messages, tools=allowed_tools)
         )
+
+        if _metering:
+            _plan_usage = getattr(planning, "usage", None)
+            await _metering.complete_event(
+                _plan_event_id,
+                model_name=AZURE_OPENAI_DEPLOYMENT,
+                input_tokens=getattr(_plan_usage, "prompt_tokens", None),
+                output_tokens=getattr(_plan_usage, "completion_tokens", None),
+                duration_ms=int((time.time() - _plan_t0) * 1000),
+                metadata={"round": round_idx},
+            )
 
         if not planning.choices:
             logger.info("[MCP] Round %d — no choices from model", round_idx)
@@ -1735,6 +1792,17 @@ async def _run_mcp_tool_orchestration(
             tool_name = tool_call.function.name
             tool_args = _parse_tool_arguments(tool_call.function.arguments)
 
+            # Metering: record each tool invocation
+            _tool_event_id = None
+            _tool_t0 = time.time()
+            if _metering:
+                _tool_event_id = await _metering.start_event(
+                    user_id=user_id or "unknown",
+                    action_type="tool",
+                    action_name=tool_name,
+                    metadata={"round": round_idx},
+                )
+
             # Local tool handlers (no MCP proxy needed)
             if tool_name == "generate_document":
                 tool_result = await _handle_generate_document(tool_args)
@@ -1748,6 +1816,21 @@ async def _run_mcp_tool_orchestration(
                     messages=working_messages,
                     fallback_prompt=prompt,
                 )
+
+            if _metering:
+                _tool_duration = int((time.time() - _tool_t0) * 1000)
+                if tool_result.get("ok", False):
+                    await _metering.complete_event(
+                        _tool_event_id,
+                        tool_name=tool_name,
+                        duration_ms=_tool_duration,
+                    )
+                else:
+                    await _metering.fail_event(
+                        _tool_event_id,
+                        error=tool_result.get("error", "tool returned ok=False"),
+                        duration_ms=_tool_duration,
+                    )
 
             working_messages.append(
                 {
