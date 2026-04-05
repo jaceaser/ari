@@ -151,6 +151,7 @@ def mock_cosmos():
 
     # Magic link methods (PR9c)
     mock.store_magic_token = AsyncMock(return_value={})
+    mock.get_magic_token_raw = AsyncMock(return_value=None)
     mock.verify_magic_token = AsyncMock(return_value=None)
     mock.delete_magic_token = AsyncMock()
 
