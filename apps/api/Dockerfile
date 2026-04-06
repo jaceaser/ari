@@ -14,6 +14,9 @@ COPY app.py cosmos.py schemas.py ./
 COPY middleware/ middleware/
 COPY routes/ routes/
 COPY services/ services/
+COPY billing/ billing/
+COPY migrations/ migrations/
+COPY alembic.ini .
 COPY startup.sh .
 
 EXPOSE 8000
