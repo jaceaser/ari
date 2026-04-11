@@ -29,7 +29,7 @@ function decodeJwtPayload(token: string): Record<string, unknown> | null {
 export default function TryPage() {
   const t = useTranslations("try");
 
-  // Lead gate
+  // Lead capture — shown AFTER the limit is reached, not before
   const [leadCaptured, setLeadCaptured] = useState(false);
   const [leadName, setLeadName] = useState("");
   const [leadEmail, setLeadEmail] = useState("");
@@ -51,12 +51,13 @@ export default function TryPage() {
   const inputRef = useRef<HTMLInputElement>(null);
   const emailRef = useRef<HTMLInputElement>(null);
 
-  // Restore lead + token from localStorage on mount
+  // hero → chat transition: once user sends a message or was previously at limit
+  const hasStarted = messages.length > 0 || limitReached;
+
+  // Restore token (and lead status) from localStorage on mount
   useEffect(() => {
     const storedLead = localStorage.getItem(LEAD_KEY);
-    if (storedLead) {
-      setLeadCaptured(true);
-    }
+    if (storedLead) setLeadCaptured(true);
 
     const stored = localStorage.getItem(STORAGE_KEY);
     if (stored) {
@@ -78,19 +79,24 @@ export default function TryPage() {
     fetchNewToken();
   }, []);
 
-  // Focus email input when gate shows
+  // Focus chat input when ready and not limited
   useEffect(() => {
-    if (!leadCaptured) {
-      setTimeout(() => emailRef.current?.focus(), 100);
-    }
-  }, [leadCaptured]);
-
-  // Focus chat input after lead captured
-  useEffect(() => {
-    if (leadCaptured && tokenReady) {
+    if (tokenReady && !limitReached) {
       setTimeout(() => inputRef.current?.focus(), 100);
     }
-  }, [leadCaptured, tokenReady]);
+  }, [tokenReady, limitReached]);
+
+  // Focus email field when limit gate appears
+  useEffect(() => {
+    if (limitReached && !leadCaptured) {
+      setTimeout(() => emailRef.current?.focus(), 100);
+    }
+  }, [limitReached, leadCaptured]);
+
+  useEffect(() => {
+    const el = scrollContainerRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [messages]);
 
   async function fetchNewToken() {
     try {
@@ -105,11 +111,6 @@ export default function TryPage() {
       setTokenReady(true);
     }
   }
-
-  useEffect(() => {
-    const el = scrollContainerRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [messages]);
 
   async function handleLeadSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -131,16 +132,12 @@ export default function TryPage() {
         setLeadError(data.error || "Something went wrong. Please try again.");
         return;
       }
-      // Use server-issued token seeded with actual usage count for this email
-      if (data.token) {
-        setDemoToken(data.token);
-        localStorage.setItem(STORAGE_KEY, data.token);
-        const used = data.questionsUsed ?? 0;
-        setQuestionsUsed(used);
-        if (used >= MAX_QUESTIONS) setLimitReached(true);
-      }
-      localStorage.setItem(LEAD_KEY, JSON.stringify({ name, email, consent: true }));
+      localStorage.setItem(
+        LEAD_KEY,
+        JSON.stringify({ name, email, consent: true })
+      );
       setLeadCaptured(true);
+      window.open(SIGNUP_URL, "_top");
     } catch {
       setLeadError("Something went wrong. Please try again.");
     } finally {
@@ -175,7 +172,10 @@ export default function TryPage() {
         } else {
           setMessages((prev) => [
             ...prev,
-            { role: "assistant", content: "Something went wrong. Please try again." },
+            {
+              role: "assistant",
+              content: "Something went wrong. Please try again.",
+            },
           ]);
         }
         return;
@@ -235,7 +235,10 @@ export default function TryPage() {
       console.error("Demo chat error", err);
       setMessages((prev) => [
         ...prev,
-        { role: "assistant", content: "Something went wrong. Please try again." },
+        {
+          role: "assistant",
+          content: "Something went wrong. Please try again.",
+        },
       ]);
     } finally {
       setIsStreaming(false);
@@ -246,102 +249,144 @@ export default function TryPage() {
   const questionsLeft = MAX_QUESTIONS - questionsUsed;
 
   return (
-    <div className="flex flex-col h-dvh bg-background text-foreground font-sans">
-      {/* Header */}
-      <div className="flex items-center gap-2.5 px-4 py-3 border-b shrink-0">
-        <div className="size-7 rounded-full bg-primary flex items-center justify-center">
-          <span className="text-xs font-bold text-primary-foreground select-none">A</span>
-        </div>
-        <span className="font-semibold text-sm">ARI</span>
-        <span className="text-xs text-muted-foreground ml-0.5">by REI Labs</span>
-      </div>
+    <div
+      className="relative flex flex-col h-dvh overflow-hidden font-sans"
+      style={{ backgroundColor: "#080808", color: "#fff" }}
+    >
+      {/* Atmospheric glow — warm gold upper-right, soft lower-left */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0 z-0"
+        style={{
+          background:
+            "radial-gradient(ellipse 70% 55% at 68% 15%, rgba(210,160,50,0.22) 0%, rgba(180,120,20,0.09) 40%, transparent 70%)",
+        }}
+      />
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0 z-0"
+        style={{
+          background:
+            "radial-gradient(ellipse 45% 55% at 25% 85%, rgba(255,190,70,0.07) 0%, transparent 60%)",
+        }}
+      />
 
-      {/* Lead gate */}
-      {!leadCaptured ? (
-        <div className="flex-1 flex flex-col items-center justify-center px-6 py-8">
-          <div className="w-full max-w-sm space-y-5">
-            <div className="space-y-1 text-center">
-              <p className="font-semibold text-base">{t("title")}</p>
-              <p className="text-xs text-muted-foreground">
-                {t("subtitle")}
-              </p>
-            </div>
-            <form onSubmit={handleLeadSubmit} className="space-y-3">
-              <input
-                type="text"
-                value={leadName}
-                onChange={(e) => setLeadName(e.target.value)}
-                placeholder={t("namePlaceholder")}
-                required
-                maxLength={100}
-                disabled={leadSubmitting}
-                className="w-full rounded-xl border bg-background px-3 py-2.5 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-50"
-              />
-              <input
-                ref={emailRef}
-                type="email"
-                value={leadEmail}
-                onChange={(e) => setLeadEmail(e.target.value)}
-                placeholder={t("emailPlaceholder")}
-                required
-                maxLength={200}
-                disabled={leadSubmitting}
-                className="w-full rounded-xl border bg-background px-3 py-2.5 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-50"
-              />
-              <label className="flex items-start gap-2.5 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={leadConsent}
-                  onChange={(e) => setLeadConsent(e.target.checked)}
-                  disabled={leadSubmitting}
-                  className="mt-0.5 size-4 shrink-0 accent-[hsl(41,92%,67%)] cursor-pointer"
-                />
-                <span className="text-xs text-muted-foreground leading-relaxed">
-                  {t("consent")}{" "}
-                  <a
-                    href="https://reilabs.ai/privacy-policy"
-                    target="_top"
-                    rel="noopener noreferrer"
-                    className="underline underline-offset-2 hover:text-foreground transition-colors"
-                  >
-                    {t("privacyPolicy")}
-                  </a>{" "}
-                  and{" "}
-                  <a
-                    href="https://reilabs.ai/terms-of-service"
-                    target="_top"
-                    rel="noopener noreferrer"
-                    className="underline underline-offset-2 hover:text-foreground transition-colors"
-                  >
-                    {t("termsOfService")}
-                  </a>
-                  .
-                </span>
-              </label>
-              {leadError && (
-                <p className="text-xs text-red-500">{leadError}</p>
-              )}
-              <button
-                type="submit"
-                disabled={!leadName.trim() || !leadEmail.trim() || !leadConsent || leadSubmitting}
-                className="w-full bg-primary text-primary-foreground text-sm font-semibold py-2.5 rounded-xl hover:opacity-90 transition-opacity disabled:opacity-40"
-              >
-                {leadSubmitting ? t("starting") : t("startChatting")}
-              </button>
-            </form>
-          </div>
+      {/* Header */}
+      <header className="relative z-10 flex items-center gap-2 px-4 py-3 shrink-0">
+        <div
+          className="size-6 rounded-full flex items-center justify-center shrink-0"
+          style={{ backgroundColor: "hsl(41,92%,67%)" }}
+        >
+          <span className="text-xs font-bold text-black select-none">A</span>
         </div>
-      ) : (
+        <span className="font-semibold text-sm" style={{ color: "rgba(255,255,255,0.9)" }}>
+          ARI
+        </span>
+        <span className="text-xs ml-0.5" style={{ color: "rgba(255,255,255,0.3)" }}>
+          by REI Labs
+        </span>
+        {!hasStarted && tokenReady && questionsLeft > 0 && (
+          <span
+            className="ml-auto text-xs tabular-nums"
+            style={{ color: "rgba(255,255,255,0.25)" }}
+          >
+            {questionsLeft} free question{questionsLeft !== 1 ? "s" : ""}
+          </span>
+        )}
+      </header>
+
+      {/* ── HERO STATE (no messages, not at limit) ── */}
+      {!hasStarted && (
+        <div className="relative z-10 flex-1 flex flex-col items-center justify-center px-6 pb-10">
+          {/* Large ARI backdrop */}
+          <div
+            aria-hidden
+            className="absolute inset-0 flex items-center justify-center pointer-events-none select-none"
+          >
+            <span
+              style={{
+                fontSize: "clamp(96px, 22vw, 220px)",
+                fontWeight: 900,
+                letterSpacing: "-0.04em",
+                lineHeight: 1,
+                color: "transparent",
+                WebkitTextStroke: "1px rgba(255,255,255,0.055)",
+                textShadow: "0 0 120px rgba(210,160,50,0.12)",
+              }}
+            >
+              ARI
+            </span>
+          </div>
+
+          <p
+            className="text-sm mb-8 z-10 relative"
+            style={{ color: "rgba(255,255,255,0.38)" }}
+          >
+            Ask anything about real estate
+          </p>
+
+          {/* Centered hero input */}
+          <form
+            onSubmit={handleSubmit}
+            className="w-full max-w-lg z-10 relative"
+          >
+            <input
+              ref={inputRef}
+              type="text"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              placeholder="What do you want to know?"
+              disabled={isStreaming || !tokenReady}
+              maxLength={500}
+              className="w-full rounded-2xl px-5 py-4 text-sm pr-14 focus:outline-none disabled:opacity-50"
+              style={{
+                backgroundColor: "rgba(255,255,255,0.06)",
+                border: "1px solid rgba(255,255,255,0.1)",
+                color: "#fff",
+                caretColor: "hsl(41,92%,67%)",
+              }}
+              onFocus={(e) =>
+                (e.currentTarget.style.boxShadow =
+                  "0 0 0 1px hsl(41,92%,67%,0.4)")
+              }
+              onBlur={(e) => (e.currentTarget.style.boxShadow = "none")}
+            />
+            <button
+              type="submit"
+              disabled={!input.trim() || isStreaming || !tokenReady}
+              aria-label="Ask"
+              className="absolute right-3 top-1/2 -translate-y-1/2 size-8 rounded-full flex items-center justify-center transition-opacity disabled:opacity-25 hover:opacity-85"
+              style={{ backgroundColor: "hsl(41,92%,67%)", color: "#000" }}
+            >
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                <path
+                  d="M1 7h12M7 1l6 6-6 6"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </button>
+          </form>
+
+          <p
+            className="text-xs mt-4 z-10 relative"
+            style={{ color: "rgba(255,255,255,0.18)" }}
+          >
+            No account needed &middot; {MAX_QUESTIONS} questions free
+          </p>
+        </div>
+      )}
+
+      {/* ── CHAT STATE (has messages or at limit) ── */}
+      {hasStarted && (
         <>
           {/* Messages */}
-          <div ref={scrollContainerRef} className="flex-1 overflow-y-auto px-4 py-4 space-y-3 min-h-0">
-            {messages.length === 0 && tokenReady && (
-              <div className="text-center text-sm text-muted-foreground mt-10 space-y-1">
-                <p className="font-medium text-foreground">{t("chatTitle")}</p>
-                <p className="text-xs">{t("chatSubtitle")}</p>
-              </div>
-            )}
-
+          <div
+            ref={scrollContainerRef}
+            className="relative z-10 flex-1 overflow-y-auto px-4 py-4 space-y-3 min-h-0"
+          >
             {messages.map((msg, i) => (
               <div
                 key={i}
@@ -349,16 +394,27 @@ export default function TryPage() {
               >
                 <div
                   className={`max-w-[88%] rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed ${
-                    msg.role === "user"
-                      ? "bg-primary text-primary-foreground rounded-br-sm"
-                      : "bg-muted text-foreground rounded-bl-sm prose prose-sm prose-neutral dark:prose-invert max-w-none"
+                    msg.role === "assistant"
+                      ? "prose prose-sm prose-invert max-w-none rounded-bl-sm"
+                      : "rounded-br-sm font-medium"
                   }`}
+                  style={
+                    msg.role === "user"
+                      ? {
+                          backgroundColor: "hsl(41,92%,67%)",
+                          color: "#000",
+                        }
+                      : {
+                          backgroundColor: "rgba(255,255,255,0.07)",
+                          color: "rgba(255,255,255,0.88)",
+                        }
+                  }
                 >
                   {msg.role === "assistant" ? (
                     msg.content ? (
                       <Streamdown>{msg.content}</Streamdown>
                     ) : isStreaming && i === messages.length - 1 ? (
-                      <span className="opacity-50">...</span>
+                      <span style={{ opacity: 0.35 }}>...</span>
                     ) : null
                   ) : (
                     msg.content
@@ -368,29 +424,151 @@ export default function TryPage() {
             ))}
           </div>
 
-          {/* Limit reached CTA */}
-          {limitReached && (
-            <div className="px-4 py-4 border-t bg-muted text-center space-y-2 shrink-0">
-              <p className="text-sm font-medium">{t("usedFreeQuestions")}</p>
-              <p className="text-xs text-muted-foreground">
+          {/* Limit reached — lead capture form (not yet submitted) */}
+          {limitReached && !leadCaptured && (
+            <div
+              className="relative z-10 px-4 py-5 shrink-0"
+              style={{
+                borderTop: "1px solid rgba(255,255,255,0.08)",
+                backgroundColor: "rgba(0,0,0,0.45)",
+                backdropFilter: "blur(12px)",
+              }}
+            >
+              <p className="text-sm font-semibold mb-0.5">
+                {t("usedFreeQuestions")}
+              </p>
+              <p
+                className="text-xs mb-4"
+                style={{ color: "rgba(255,255,255,0.45)" }}
+              >
                 {t("upgradeDesc")}
+              </p>
+              <form onSubmit={handleLeadSubmit} className="space-y-2.5">
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={leadName}
+                    onChange={(e) => setLeadName(e.target.value)}
+                    placeholder={t("namePlaceholder")}
+                    required
+                    maxLength={100}
+                    disabled={leadSubmitting}
+                    className="flex-1 rounded-xl px-3 py-2 text-sm focus:outline-none disabled:opacity-50"
+                    style={{
+                      backgroundColor: "rgba(255,255,255,0.06)",
+                      border: "1px solid rgba(255,255,255,0.1)",
+                      color: "#fff",
+                    }}
+                  />
+                  <input
+                    ref={emailRef}
+                    type="email"
+                    value={leadEmail}
+                    onChange={(e) => setLeadEmail(e.target.value)}
+                    placeholder={t("emailPlaceholder")}
+                    required
+                    maxLength={200}
+                    disabled={leadSubmitting}
+                    className="flex-1 rounded-xl px-3 py-2 text-sm focus:outline-none disabled:opacity-50"
+                    style={{
+                      backgroundColor: "rgba(255,255,255,0.06)",
+                      border: "1px solid rgba(255,255,255,0.1)",
+                      color: "#fff",
+                    }}
+                  />
+                </div>
+                <label className="flex items-start gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={leadConsent}
+                    onChange={(e) => setLeadConsent(e.target.checked)}
+                    disabled={leadSubmitting}
+                    className="mt-0.5 size-3.5 shrink-0 cursor-pointer"
+                    style={{ accentColor: "hsl(41,92%,67%)" }}
+                  />
+                  <span
+                    className="text-[11px] leading-relaxed"
+                    style={{ color: "rgba(255,255,255,0.3)" }}
+                  >
+                    {t("consent")}{" "}
+                    <a
+                      href="https://reilabs.ai/privacy-policy"
+                      target="_top"
+                      rel="noopener noreferrer"
+                      className="underline underline-offset-2 transition-colors hover:opacity-70"
+                    >
+                      {t("privacyPolicy")}
+                    </a>{" "}
+                    and{" "}
+                    <a
+                      href="https://reilabs.ai/terms-of-service"
+                      target="_top"
+                      rel="noopener noreferrer"
+                      className="underline underline-offset-2 transition-colors hover:opacity-70"
+                    >
+                      {t("termsOfService")}
+                    </a>
+                    .
+                  </span>
+                </label>
+                {leadError && (
+                  <p className="text-xs" style={{ color: "#f87171" }}>
+                    {leadError}
+                  </p>
+                )}
+                <button
+                  type="submit"
+                  disabled={
+                    !leadName.trim() ||
+                    !leadEmail.trim() ||
+                    !leadConsent ||
+                    leadSubmitting
+                  }
+                  className="w-full text-sm font-semibold py-2.5 rounded-xl transition-opacity hover:opacity-90 disabled:opacity-35"
+                  style={{
+                    backgroundColor: "hsl(41,92%,67%)",
+                    color: "#000",
+                  }}
+                >
+                  {leadSubmitting ? t("starting") : t("upgrade")}
+                </button>
+              </form>
+            </div>
+          )}
+
+          {/* Limit reached — lead already captured, show simple CTA */}
+          {limitReached && leadCaptured && (
+            <div
+              className="relative z-10 px-4 py-4 shrink-0 text-center space-y-2"
+              style={{
+                borderTop: "1px solid rgba(255,255,255,0.08)",
+                backgroundColor: "rgba(0,0,0,0.4)",
+              }}
+            >
+              <p
+                className="text-sm font-medium"
+                style={{ color: "rgba(255,255,255,0.75)" }}
+              >
+                {t("usedFreeQuestions")}
               </p>
               <a
                 href={SIGNUP_URL}
                 target="_top"
                 rel="noopener noreferrer"
-                className="inline-block mt-1 bg-primary text-primary-foreground text-sm font-semibold px-5 py-2 rounded-xl hover:opacity-90 transition-opacity"
+                className="inline-block text-sm font-semibold px-5 py-2 rounded-xl transition-opacity hover:opacity-90"
+                style={{ backgroundColor: "hsl(41,92%,67%)", color: "#000" }}
               >
                 {t("upgrade")}
               </a>
             </div>
           )}
 
-          {/* Input */}
+          {/* Chat input */}
           {!limitReached && (
             <form
               onSubmit={handleSubmit}
-              className="flex gap-2 px-3 py-3 border-t shrink-0"
+              className="relative z-10 flex gap-2 px-3 py-3 shrink-0"
+              style={{ borderTop: "1px solid rgba(255,255,255,0.08)" }}
             >
               <input
                 ref={inputRef}
@@ -402,12 +580,19 @@ export default function TryPage() {
                 }
                 disabled={isStreaming || !tokenReady}
                 maxLength={500}
-                className="flex-1 rounded-xl border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-50 min-w-0"
+                className="flex-1 rounded-xl px-3 py-2.5 text-sm focus:outline-none disabled:opacity-50 min-w-0"
+                style={{
+                  backgroundColor: "rgba(255,255,255,0.06)",
+                  border: "1px solid rgba(255,255,255,0.1)",
+                  color: "#fff",
+                  caretColor: "hsl(41,92%,67%)",
+                }}
               />
               <button
                 type="submit"
                 disabled={!input.trim() || isStreaming || !tokenReady}
-                className="bg-primary text-primary-foreground text-sm font-medium px-4 py-2 rounded-xl hover:opacity-90 transition-opacity disabled:opacity-40 shrink-0"
+                className="text-sm font-medium px-4 py-2 rounded-xl transition-opacity hover:opacity-90 disabled:opacity-35 shrink-0"
+                style={{ backgroundColor: "hsl(41,92%,67%)", color: "#000" }}
               >
                 {isStreaming ? "..." : t("ask")}
               </button>
