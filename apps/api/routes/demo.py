@@ -42,6 +42,7 @@ _ALLOWED_ORIGINS = {
     "https://reilabs.ai",
     "https://www.reilabs.ai",
     "https://ari-web.azurewebsites.net",
+    "https://ari-web-dev.azurewebsites.net",
 }
 
 
