@@ -101,6 +101,7 @@ from routes.magic_link import magic_link_bp  # noqa: E402
 from routes.stripe_webhook import stripe_webhook_bp  # noqa: E402
 from routes.billing import billing_bp  # noqa: E402
 from routes.demo import demo_bp  # noqa: E402
+from billing.admin_routes import admin_bp  # noqa: E402
 
 app.register_blueprint(auth_bp)
 app.register_blueprint(sessions_bp)
@@ -111,6 +112,7 @@ app.register_blueprint(magic_link_bp)
 app.register_blueprint(stripe_webhook_bp)
 app.register_blueprint(billing_bp)
 app.register_blueprint(demo_bp)
+app.register_blueprint(admin_bp)
 
 # ============================================================================
 # Configuration
@@ -1500,6 +1502,9 @@ async def _get_user_tier(user_id: str) -> str:
         if not tier:
             plan = ((sub or {}).get("plan") or "").strip().lower()
             tier = _plan_map.get(plan, "")
+        # Canceled subscription overrides everything — no access regardless of stored tier
+        if (sub or {}).get("subscription_status") == "canceled":
+            tier = "canceled"
     except Exception:
         logger.warning("[tier] Cosmos lookup failed for user %s; defaulting to no-tier", user_id)
         tier = ""

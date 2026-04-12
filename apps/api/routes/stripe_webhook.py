@@ -105,7 +105,32 @@ async def _handle_subscription_update(cosmos, sub: dict) -> None:
         # Fallback: some users have subscription_id but no stripe_customer_id (e.g. Redis migration)
         user = await cosmos.find_user_by_subscription_id(sub.get("id", ""))
     if not user:
-        logger.warning("No user found for Stripe customer %s", customer_id)
+        # User hasn't created their ARI account yet. Look up their email from Stripe
+        # so we can store/update a pending subscription record for when they sign up.
+        try:
+            import stripe as _stripe
+            import os as _os
+            _stripe.api_key = _os.getenv("STRIPE_SECRET_KEY", "").strip()
+            customer = _stripe.Customer.retrieve(customer_id)
+            customer_email = (customer.get("email") or "").strip().lower()
+        except Exception:
+            customer_email = ""
+
+        stripe_data = {
+            "stripe_customer_id": customer_id,
+            "subscription_id": sub.get("id"),
+            "subscription_status": sub.get("status"),
+            "plan": _extract_plan_name(sub),
+            "subscription_expires_at": _format_timestamp(sub.get("current_period_end")),
+        }
+        tier = _extract_tier(sub) or _PLAN_TO_TIER.get(stripe_data["plan"], "")
+        if tier:
+            stripe_data["tier"] = tier
+
+        if customer_email:
+            await cosmos.store_pending_subscription(customer_email, stripe_data)
+        else:
+            logger.warning("No user and no resolvable email for Stripe customer %s", customer_id)
         return
 
     user_id = user.get("userId", user.get("id"))
@@ -113,7 +138,7 @@ async def _handle_subscription_update(cosmos, sub: dict) -> None:
         "stripe_customer_id": customer_id,
         "subscription_id": sub.get("id"),
         "subscription_status": sub.get("status"),  # active, past_due, canceled, etc.
-        "plan": _extract_plan(sub),
+        "plan": _extract_plan_name(sub),
         "subscription_expires_at": _format_timestamp(sub.get("current_period_end")),
     }
 
@@ -182,36 +207,54 @@ async def _handle_customer_updated(cosmos, customer: dict) -> None:
 
 
 async def _handle_checkout_completed(cosmos, session: dict) -> None:
-    """Link Stripe customer to user after checkout."""
+    """Link Stripe customer to user after checkout, creating the account if needed."""
+    import uuid as _uuid
     customer_id = session.get("customer")
-    customer_email = session.get("customer_email") or session.get("customer_details", {}).get("email")
+    customer_email = (
+        session.get("customer_email")
+        or session.get("customer_details", {}).get("email")
+        or ""
+    ).strip().lower()
     subscription_id = session.get("subscription")
 
     if not customer_id:
         return
 
-    # Try email first, then fall back to customer ID (handles email changes)
-    user = None
-    if customer_email:
-        user = await cosmos.find_user_by_email(customer_email)
-    if not user:
-        user = await cosmos.find_user_by_stripe_customer(customer_id)
-    if not user:
-        logger.warning("No user found for checkout email=%s customer_id=%s", customer_email, customer_id)
+    if not customer_email:
+        logger.warning("checkout.session.completed has no email for customer_id=%s — cannot create account", customer_id)
         return
 
-    user_id = user.get("userId", user.get("id"))
-    stripe_data = {
-        "stripe_customer_id": customer_id,
-    }
+    # Try to find an existing user by email or Stripe customer ID
+    user = await cosmos.find_user_by_email(customer_email)
+    if not user:
+        user = await cosmos.find_user_by_stripe_customer(customer_id)
+
+    is_new_user = user is None
+    if is_new_user:
+        # First subscription — create the ARI account now.
+        # The user will receive a magic link to log in for the first time.
+        user_id = str(_uuid.uuid5(_uuid.NAMESPACE_URL, f"ari:user:{customer_email}"))
+        await cosmos.ensure_user(user_id, customer_email)
+        logger.info("Created new ARI account for Stripe customer %s (%s)", customer_id, customer_email)
+    else:
+        user_id = user.get("userId", user.get("id"))
+
+    stripe_data: dict = {"stripe_customer_id": customer_id}
     if subscription_id:
         stripe_data["subscription_id"] = subscription_id
         stripe_data["subscription_status"] = "active"
 
     await cosmos.update_user_subscription(user_id, stripe_data)
-    logger.info("Linked Stripe customer %s to user %s", customer_id, user_id)
+    logger.info("Linked Stripe customer %s to user %s (new=%s)", customer_id, user_id, is_new_user)
 
-    if customer_email:
+    if is_new_user:
+        # Send magic link so the new subscriber can log in for the first time
+        from routes.magic_link import send_welcome_email, _send_magic_link_for_new_subscriber
+        try:
+            await _send_magic_link_for_new_subscriber(customer_email)
+        except Exception:
+            logger.exception("Failed to send new-subscriber magic link to %s", customer_email)
+    else:
         from routes.magic_link import send_welcome_email
         try:
             await send_welcome_email(customer_email)
@@ -281,11 +324,28 @@ _PLAN_TO_TIER = {
     "ari_lite": "lite",
 }
 
+# Fallback: price ID → tier for prices whose nickname/metadata may not carry tier.
+# Keep in sync with Stripe dashboard.
+_PRICE_ID_TO_TIER = {
+    "price_1Suh1PA8LlrWRNKgT6RKTBBn": "elite",   # ARI Elite monthly
+    "price_1Suh1eA8LlrWRNKgKi0lLewp": "elite",   # ARI Elite annual
+    "price_1SuguhA8LlrWRNKgfI8XS0tJ": "lite",    # ARI Lite monthly
+    "price_1SugvHA8LlrWRNKg0tpHq1NA": "lite",    # ARI Lite (tax-inclusive variant)
+}
+
+_PRICE_ID_TO_PLAN = {
+    "price_1Suh1PA8LlrWRNKgT6RKTBBn": "ari_elite",
+    "price_1Suh1eA8LlrWRNKgKi0lLewp": "ari_elite",
+    "price_1SuguhA8LlrWRNKgfI8XS0tJ": "ari_lite",
+    "price_1SugvHA8LlrWRNKg0tpHq1NA": "ari_lite",
+}
+
 
 def _extract_tier(sub: dict) -> str:
     """Extract and normalize tier from subscription or price metadata.
 
-    Checks subscription metadata, then price metadata, then product metadata.
+    Checks subscription metadata, then price metadata, then product metadata,
+    then falls back to a hard-coded price ID map.
     Normalizes values like 'ari_elite' → 'elite' to match _TIER_TOOLS keys.
     """
     raw = ""
@@ -301,8 +361,25 @@ def _extract_tier(sub: dict) -> str:
                 product = price.get("product") or {}
                 if isinstance(product, dict):
                     raw = (product.get("metadata") or {}).get("tier", "").strip().lower()
+            if not raw:
+                # Last resort: look up by price ID
+                raw = _PRICE_ID_TO_TIER.get(price.get("id", ""), "")
+                if raw:
+                    return raw  # already normalized
     # Normalize ari_* prefixed values to canonical tier names
     return _PLAN_TO_TIER.get(raw, raw)
+
+
+def _extract_plan_name(sub: dict) -> str:
+    """Return a canonical plan name (ari_lite / ari_elite) for a subscription."""
+    items = sub.get("items", {}).get("data", [])
+    if not items:
+        return "unknown"
+    price_id = items[0].get("price", {}).get("id", "")
+    if price_id in _PRICE_ID_TO_PLAN:
+        return _PRICE_ID_TO_PLAN[price_id]
+    price = items[0].get("price", {})
+    return price.get("nickname") or price_id or "unknown"
 
 
 def _format_timestamp(ts) -> str | None:

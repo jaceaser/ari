@@ -131,6 +131,37 @@ async def _send_email(email: str, link: str) -> None:
         raise
 
 
+async def _send_magic_link_for_new_subscriber(email: str) -> None:
+    """Generate a magic link and email it to a brand-new Stripe subscriber.
+
+    Called from the checkout.session.completed webhook when we create a new
+    ARI account on the subscriber's behalf. The link lets them log in without
+    needing to go through the normal 'send magic link' flow first.
+    """
+    import datetime as _dt
+    import secrets as _secrets
+    from cosmos import SessionsCosmosClient
+
+    cosmos = SessionsCosmosClient.get_instance()
+    if not cosmos:
+        logger.warning("Cosmos not available — cannot send new-subscriber magic link to %s", email)
+        return
+
+    token = _secrets.token_urlsafe(32)
+    expires_at = (
+        _dt.datetime.now(_dt.timezone.utc) + _dt.timedelta(days=7)
+    ).isoformat()  # 7-day window so they have time to log in
+
+    await cosmos.store_magic_token(email, token, expires_at)
+
+    frontend_url = _get_frontend_url()
+    link = f"{frontend_url}/verify?token={token}"
+
+    # Reuse the magic link email template but with subscription-aware copy
+    await _send_email(email, link)
+    logger.info("Sent new-subscriber magic link to %s", email)
+
+
 async def send_welcome_email(email: str) -> None:
     """Send a welcome email to a new subscriber via Azure Communication Services."""
     endpoint = os.getenv("AZURE_COMMUNICATION_ENDPOINT", "").strip()
@@ -448,12 +479,22 @@ async def verify_magic_link():
         existing = await cosmos.find_user_by_email(email)
         if existing:
             user_id = existing.get("userId", existing.get("id"))
+            is_new_user = False
         else:
             # Derive deterministic user ID for new users
             user_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"ari:user:{email}"))
+            is_new_user = True
 
         # Ensure user exists in Cosmos
         await cosmos.ensure_user(user_id, email)
+
+        # If this is a new account, apply any Stripe subscription that was
+        # processed before the user signed up (subscribe-before-account case).
+        if is_new_user:
+            pending = await cosmos.claim_pending_subscription(email)
+            if pending:
+                await cosmos.update_user_subscription(user_id, pending)
+                logger.info("Applied pending subscription to new user %s (%s)", user_id, email)
     except Exception:
         logger.exception("verify_magic_link: failed to find/create user for %s", email)
         raise

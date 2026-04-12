@@ -766,6 +766,43 @@ class SessionsCosmosClient:
                 return item
             return None
 
+    async def store_pending_subscription(self, email: str, data: dict[str, Any]) -> None:
+        """Store subscription data for an email that has no ARI account yet.
+
+        Keyed by email under the 'system' partition so it can be claimed when
+        the user later creates their account via magic link.
+        """
+        doc = {
+            "id": f"pending_sub:{email}",
+            "type": "pending_subscription",
+            "userId": "system",
+            "email": email,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            **data,
+        }
+        async with self._client() as client:
+            container = await self._container(client)
+            await container.upsert_item(doc)
+        logger.info("Stored pending subscription for %s", email)
+
+    async def claim_pending_subscription(self, email: str) -> Optional[dict[str, Any]]:
+        """Find and delete a pending subscription for this email.
+
+        Called when a new user creates their account, so any Stripe subscription
+        that was processed before the account existed is applied immediately.
+        Returns the subscription data dict (without internal fields), or None.
+        """
+        doc_id = f"pending_sub:{email}"
+        async with self._client() as client:
+            container = await self._container(client)
+            try:
+                item = await container.read_item(item=doc_id, partition_key="system")
+                await container.delete_item(item=doc_id, partition_key="system")
+                logger.info("Claimed pending subscription for %s", email)
+                return {k: v for k, v in item.items() if k not in ("id", "type", "userId", "created_at")}
+            except Exception:
+                return None
+
     async def find_user_by_subscription_id(self, subscription_id: str) -> Optional[dict[str, Any]]:
         """Find a user document by Stripe subscription ID (cross-partition query).
 

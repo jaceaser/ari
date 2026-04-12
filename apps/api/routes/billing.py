@@ -7,12 +7,30 @@ POST /billing/create-portal   — create Stripe Customer Portal session
 
 import logging
 import os
+from datetime import datetime, timezone
 
 from quart import Blueprint, jsonify, request
 
 logger = logging.getLogger("api.billing")
 
 billing_bp = Blueprint("billing", __name__)
+FREE_DAILY_PROMPT_LIMIT = 5
+
+
+def _normalize_tier(raw_tier: str | None) -> str:
+    value = (raw_tier or "").strip().lower()
+    mapping = {
+        "ari_lite": "lite",
+        "ari_elite": "elite",
+        "ari_pro": "elite",
+        "basic": "lite",
+        "pro": "elite",
+        "lite": "lite",
+        "elite": "elite",
+    }
+    if value == "canceled":
+        return "canceled"
+    return mapping.get(value, "free")
 
 
 def _user_id() -> str:
@@ -25,7 +43,7 @@ def _user_email() -> str:
 
 @billing_bp.get("/billing/me")
 async def users_me():
-    """Return lightweight profile: email + tier. Used by mobile settings screen."""
+    """Return profile + tier and daily usage caps for mobile."""
     user_id = _user_id()
     if not user_id:
         return jsonify({"error": "Unauthorized"}), 401
@@ -34,9 +52,77 @@ async def users_me():
 
     # Re-use the same cached tier logic as the guardrails middleware
     from app import _get_user_tier
-    tier = await _get_user_tier(user_id)
+    from cosmos import SessionsCosmosClient
 
-    return jsonify({"email": email, "tier": tier or "free"})
+    tier = _normalize_tier(await _get_user_tier(user_id))
+    daily_prompt_limit = FREE_DAILY_PROMPT_LIMIT if tier == "free" else -1
+    prompts_used_today = 0
+
+    cosmos = SessionsCosmosClient.get_instance()
+    if cosmos:
+        start_of_day_utc = datetime.now(timezone.utc).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
+        prompts_used_today = await cosmos.get_user_prompt_count_since(
+            user_id=user_id,
+            since_iso=start_of_day_utc.isoformat(),
+        )
+
+    return jsonify({
+        "email": email,
+        "tier": tier,
+        "daily_prompt_limit": daily_prompt_limit,
+        "prompts_used_today": prompts_used_today,
+    })
+
+
+@billing_bp.post("/subscriptions/apple/sync")
+async def apple_subscription_sync():
+    """
+    Sync Apple IAP subscription state from mobile client into user subscription doc.
+    """
+    user_id = _user_id()
+    if not user_id:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    body = await request.get_json(silent=True) or {}
+    product_id = str(body.get("product_id") or "").strip().lower()
+    transaction_id = str(body.get("transaction_id") or "").strip()
+    original_transaction_id = str(body.get("original_transaction_id") or "").strip()
+    status = str(body.get("status") or "active").strip().lower()
+
+    tier_by_product = {
+        "ari_lite": "lite",
+        "ari_elite": "elite",
+    }
+    tier = tier_by_product.get(product_id)
+    if tier is None:
+        return jsonify({"error": "Invalid product_id"}), 400
+
+    if status not in {"active", "trialing", "cancelled", "expired"}:
+        return jsonify({"error": "Invalid status"}), 400
+
+    from cosmos import SessionsCosmosClient
+
+    cosmos = SessionsCosmosClient.get_instance()
+    if not cosmos:
+        return jsonify({"error": "Persistence not configured"}), 503
+
+    await cosmos.update_user_subscription(user_id, {
+        "tier": tier,
+        "plan": product_id,
+        "subscription_status": status,
+        "apple_product_id": product_id,
+        "apple_transaction_id": transaction_id or None,
+        "apple_original_transaction_id": original_transaction_id or None,
+    })
+
+    return jsonify({
+        "ok": True,
+        "tier": tier,
+        "plan": product_id,
+        "status": status,
+    })
 
 
 @billing_bp.get("/billing/status")

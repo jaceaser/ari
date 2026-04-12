@@ -37,6 +37,8 @@ def _normalize_tier(raw_tier: str | None) -> str:
         "lite": "lite",
         "elite": "elite",
     }
+    if value == "canceled":
+        return "canceled"
     return mapping.get(value, "free")
 
 
@@ -424,9 +426,14 @@ async def send_message(session_id: str):
     if offtopic:
         return jsonify({"error": "off_topic", "detail": offtopic}), 422
 
-    # Enforce free-tier daily prompt limits server-side.
+    # Enforce subscription access controls server-side.
     from app import _get_user_tier
     tier = _normalize_tier(await _get_user_tier(user_id))
+    if tier == "canceled":
+        return jsonify({
+            "error": "Your subscription has been canceled.",
+            "code": "SUBSCRIPTION_CANCELED",
+        }), 403
     if tier == "free":
         start_of_day_utc = datetime.now(timezone.utc).replace(
             hour=0, minute=0, second=0, microsecond=0
