@@ -2122,6 +2122,7 @@ async def tool_tx_tax_leads():
     total_count = result.get("total_count", result.get("count", 0))
     county_name = result.get("county_name")
     status = result["status"]
+    export_count: int = 0
 
     # Build HTML preview table (up to 25 rows for inline display)
     preview = _tx_search_html_table(rows[:25]) if rows else None
@@ -2201,7 +2202,8 @@ async def tool_tx_tax_leads():
     return _ok("tx-tax-leads", {
         "mode": "search",
         "status": status,
-        "count": count,
+        "count": total_count,
+        "export_count": export_count,
         "county_name": county_name,
         "preview": preview,
         "excel_link": excel_link,
