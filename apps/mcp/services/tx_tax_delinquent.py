@@ -212,7 +212,7 @@ def resolve_county_key(conn_str: str, county_name: str) -> int | None:
 # Query builder
 # ---------------------------------------------------------------------------
 
-def _build_search_query(filters: dict[str, Any], county_key: int | None) -> tuple[str, dict]:
+def _build_search_query(filters: dict[str, Any], county_key: int | None) -> tuple[str, str, dict]:
     """
     Build a parameterized SELECT query for fact_property_latest.
 
@@ -326,7 +326,8 @@ ORDER BY {order_by}
 LIMIT %(limit)s
 OFFSET %(offset)s
 """
-    return sql.strip(), params
+    count_sql = f"SELECT COUNT(*) FROM fact_property_latest WHERE {where_clause}"
+    return sql.strip(), count_sql, params
 
 
 # ---------------------------------------------------------------------------
@@ -406,7 +407,7 @@ def query_properties(filters: dict[str, Any]) -> dict[str, Any]:
             }
 
     try:
-        sql, params = _build_search_query(filters, county_key)
+        sql, count_sql, params = _build_search_query(filters, county_key)
     except ValueError as exc:
         return {
             "status": "error",
@@ -422,11 +423,6 @@ def query_properties(filters: dict[str, Any]) -> dict[str, Any]:
     try:
         import psycopg2
         import psycopg2.extras
-
-        # Build a COUNT(*) query using the same WHERE clause (no LIMIT/OFFSET).
-        count_sql = f"SELECT COUNT(*) FROM fact_property_latest WHERE {where_clause}"
-        # params contains limit/offset keys that aren't in count_sql — psycopg2
-        # ignores extra keys in %(name)s style, so this is safe.
 
         with psycopg2.connect(conn_str) as conn:
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
