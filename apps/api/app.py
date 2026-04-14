@@ -142,8 +142,11 @@ AZURE_OPENAI_TIMEOUT_SECONDS = float(os.getenv("AZURE_OPENAI_TIMEOUT_SECONDS", "
 AZURE_OPENAI_CLASSIFICATION_MODEL = os.getenv("AZURE_OPENAI_CLASSIFICATION_MODEL", "gpt-5-mini")
 AZURE_OPENAI_CLASSIFICATION_SYSTEM_MESSAGE = os.getenv(
     "AZURE_OPENAI_CLASSIFICATION_SYSTEM_MESSAGE",
-    "Classify the user message into exactly one category: Leads, Buyers, Comps, Attorneys, "
-    "Strategy, Education, Contracts, OffTopic. Respond with only the category name.",
+    "Classify the user message into exactly one category: "
+    "TxTaxLeads, Leads, Buyers, Comps, Attorneys, Strategy, Education, Contracts, OffTopic. "
+    "Use TxTaxLeads for any request about tax delinquent or back-tax properties in Texas (any Texas city or county). "
+    "Use Leads for all other lead/property list requests. "
+    "Respond with only the category name.",
 )
 
 # Security
@@ -173,42 +176,16 @@ _azure_client: AsyncAzureOpenAI | None = None
 # System prompt injected into the planning/orchestration phase so the model
 # knows which tools to call for which request types.
 _ORCHESTRATION_SYSTEM_PROMPT = (
-    "You are ARI, an AI assistant for real estate investors. You have access to live data tools.\n\n"
-    "LANGUAGE: The user may write in English or Spanish. Apply the same tool routing rules "
-    "regardless of language. Respond in the same language the user used.\n\n"
-    "TOOL ROUTING — follow exactly:\n\n"
-    "1. User asks for a LIST of properties, leads, sellers, landlords, or contacts in a city/county "
-    "(in any language — English or Spanish):\n"
-    "   → IMMEDIATELY call mcp_leads_context. NEVER answer from training knowledge.\n"
-    "   English triggers: 'tired landlords', 'agent owned', 'agent listed', 'fsbo', 'for sale by owner',\n"
-    "   'foreclosures', 'pre-foreclosures', 'reo', 'bank owned', 'motivated sellers',\n"
-    "   'absentee owners', 'vacant', 'tax delinquent', 'high equity', 'free and clear',\n"
-    "   'probate', 'code violations', 'lis pendens', 'distressed', 'inherited', 'divorce leads',\n"
-    "   'hud homes', or ANY phrase like 'get me a list of X in [city]'.\n"
-    "   Spanish equivalents: 'propietarios cansados', 'dame una lista de', 'lista de propietarios',\n"
-    "   'vendedores motivados', 'ejecuciones hipotecarias', 'propietarios ausentes',\n"
-    "   'propiedades vacantes', 'dueños cansados', or similar lead-generation phrases in Spanish.\n\n"
-    "2. User asks for cash buyers or investor contacts in a city:\n"
-    "   → Call mcp_buyers_search. ALWAYS pass city and state as explicit arguments.\n"
-    "   Example: mcp_buyers_search(city='Houston', state='TX', prompt='...')\n"
-    "   English triggers: 'cash buyers', 'buyers list', 'investor buyers', 'find buyers', 'buyers in [city]'.\n"
-    "   Spanish triggers: 'compradores en efectivo', 'compradores de contado', 'compradores de efectivo',\n"
-    "   'encuentra compradores', 'busca compradores', 'inversionistas compradores', 'lista de compradores',\n"
-    "   or ANY phrase like 'dame compradores en [city]'.\n"
-    "   IMPORTANT: Extract city and state from the user message regardless of language.\n\n"
-    "3. User asks for comps, ARV, or after-repair value:\n"
-    "   → Call mcp_bricked_comps or mcp_comps_context.\n"
-    "   Spanish triggers: 'comparables', 'valor arv', 'valor después de reparaciones',\n"
-    "   'cuánto vale la propiedad', 'análisis de mercado', 'análisis de comps'.\n\n"
-    "4. User asks about attorneys or title:\n"
-    "   → Call mcp_attorneys_context.\n"
-    "   Spanish triggers: 'abogado', 'abogados', 'abogado inmobiliario',\n"
-    "   'abogados de bienes raíces', 'abogados de desalojo', 'busca abogados', 'encuentra abogados'.\n\n"
-    "5. Educational question about real estate (no live data needed):\n"
-    "   → Call mcp_education_context or mcp_strategy_context or mcp_contracts_context.\n\n"
-    "CRITICAL: For rules 1 and 2, you MUST call the live data tool. "
-    "Do not answer lead or buyer list requests from training knowledge. "
-    "NEVER show raw Zillow URLs or internal source URLs in your response."
+    "You are ARI, an AI real estate investment assistant with access to live data tools.\n\n"
+    "LANGUAGE: Respond in the same language the user used.\n\n"
+    "Read each tool's description and call the one that best fits the user's intent. "
+    "For any request involving live property data, leads, buyers, comps, or tax records — "
+    "you MUST call a tool. Never answer data requests from training knowledge.\n\n"
+    "When calling mcp_tx_tax_leads for a city-level query, use your knowledge of Texas geography "
+    "to derive the county and pass it as county_name. "
+    "When the user asks about a specific entity type (LLC, trust, estate, heirs, et al.), "
+    "pass that keyword as owner_name.\n\n"
+    "NEVER show raw internal source URLs or raw database identifiers in your response."
 )
 
 MCP_TOOL_ENDPOINTS: dict[str, str] = {
@@ -228,6 +205,7 @@ MCP_TOOL_ENDPOINTS: dict[str, str] = {
     "mcp_offtopic_context": "/tools/offtopic",
     "mcp_build_retrieval_query": "/tools/build-retrieval-query",
     "mcp_infer_lead_type": "/tools/infer-lead-type",
+    "mcp_tx_tax_leads": "/tools/tx-tax-leads",
 }
 
 MCP_TOOL_DEFINITIONS: list[dict[str, Any]] = [
@@ -288,14 +266,14 @@ MCP_TOOL_DEFINITIONS: list[dict[str, Any]] = [
         "function": {
             "name": "mcp_leads_context",
             "description": (
-                "REQUIRED for ANY request for a list of properties, leads, sellers, or real estate contacts in a city or county. "
-                "This tool retrieves LIVE data from Zillow and returns a downloadable Excel file. "
-                "You MUST call this tool — NEVER answer lead requests from training knowledge. "
-                "Call this for: 'tired landlords', 'agent owned', 'agent listed', 'fsbo', 'for sale by owner', "
-                "'foreclosures', 'pre-foreclosures', 'reo', 'bank owned', 'motivated sellers', 'absentee owners', "
-                "'vacant properties', 'tax delinquent', 'high equity', 'free and clear', 'probate', 'code violations', "
-                "'lis pendens', 'distressed properties', 'inherited properties', 'divorce leads', 'hud homes', "
-                "or ANY phrase like 'get me a list of [property type] in [city]'."
+                "NOT for Texas tax delinquent — use mcp_tx_tax_leads for those. "
+                "Use this for all other lead types in any city or county: "
+                "tired landlords, absentee owners, fsbo, foreclosures, pre-foreclosures, "
+                "reo, bank owned, motivated sellers, vacant properties, high equity, free and clear, "
+                "probate, code violations, lis pendens, distressed, inherited, divorce leads, hud homes, "
+                "and tax delinquent leads outside Texas. "
+                "Retrieves live data from Zillow and returns a downloadable Excel file. "
+                "Never answer lead requests from training knowledge — always call this tool."
             ),
             "parameters": {
                 "type": "object",
@@ -304,6 +282,107 @@ MCP_TOOL_DEFINITIONS: list[dict[str, Any]] = [
                     "url": {"type": "string", "description": "Zillow search URL to scrape for leads."},
                 },
                 "required": ["prompt"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "mcp_tx_tax_leads",
+            "description": (
+                "Use this for any request about tax delinquent properties in Texas — "
+                "whether the user mentions a county, a city, or just says 'Texas'. "
+                "This queries a live Texas appraisal district database (~850K delinquent properties), not Zillow. "
+                "You know Texas geography: derive county_name from whatever location the user gives "
+                "(e.g. McAllen → Hidalgo, Houston → Harris, Austin → Travis, San Antonio → Bexar). "
+                "Supports filtering by county, amount owed, owner name or entity keyword "
+                "(pass 'LLC', 'TRUST', 'ESTATE', 'CORP', 'ET AL', etc. as owner_name), "
+                "out-of-state owners, years delinquent, lawsuit/judgment flags, market value, and property type. "
+                "Returns an inline preview plus a random-sampled Excel export of up to 250 rows. "
+                "Do not use this for non-Texas leads — use mcp_leads_context for those."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "county_name": {
+                        "type": "string",
+                        "description": "Texas county name (e.g. 'Harris', 'Dallas', 'Bexar', 'Tarrant'). Strongly recommended for performance. When the user gives a city name, look up its county and pass both.",
+                    },
+                    "city": {
+                        "type": "string",
+                        "description": "City name hint (e.g. 'McAllen', 'Houston'). Note: situs_city is sparsely populated in this dataset — county_name is the authoritative geographic filter. Pass city when the user explicitly asks for a specific city, but if results come back empty, retry using only county_name.",
+                    },
+                    "min_amount_due": {
+                        "type": "number",
+                        "description": "Minimum total amount due (taxes + penalties + attorney fees).",
+                    },
+                    "max_amount_due": {
+                        "type": "number",
+                        "description": "Maximum total amount due.",
+                    },
+                    "owner_name": {
+                        "type": "string",
+                        "description": (
+                            "Partial owner name keyword — matched with ILIKE %keyword%. "
+                            "Use this to filter by individual name (e.g. 'Smith') OR entity type keyword. "
+                            "Entity examples: 'LLC' (LLC-owned), 'TRUST' (trust-owned), "
+                            "'ESTATE' (estates), 'ET AL' (et al / heirs), 'INC' (corporations), "
+                            "'CORP' (corporations), 'HEIRS' (heirs). "
+                            "When the user asks for properties owned by a specific entity type, "
+                            "translate their intent into the appropriate keyword here."
+                        ),
+                    },
+                    "out_of_state": {
+                        "type": "boolean",
+                        "description": "If true, return only properties owned by out-of-state (non-TX) owners.",
+                    },
+                    "min_years_delinquent": {
+                        "type": "integer",
+                        "description": "Minimum number of consecutive years delinquent.",
+                    },
+                    "has_lawsuit": {
+                        "type": "boolean",
+                        "description": "If true, return only properties with active tax lawsuits.",
+                    },
+                    "has_judgment": {
+                        "type": "boolean",
+                        "description": "If true, return only properties with tax judgments.",
+                    },
+                    "min_market_value": {
+                        "type": "number",
+                        "description": "Minimum appraised market value.",
+                    },
+                    "max_market_value": {
+                        "type": "number",
+                        "description": "Maximum appraised market value.",
+                    },
+                    "sptb_code": {
+                        "type": "string",
+                        "description": (
+                            "Property type code from the Texas appraisal system. "
+                            "Common values: A1=single family residential, A2=multi-family residential, "
+                            "F1=commercial real property, C1=vacant land, D1=qualified agriculture, "
+                            "B1=multifamily housing. Must be combined with at least one other filter."
+                        ),
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Maximum results to return for inline preview (1–250, default 25). An Excel export of up to 250 randomly-sampled rows is always generated on success.",
+                    },
+                    "offset": {
+                        "type": "integer",
+                        "description": "Pagination offset — number of results to skip (default 0).",
+                    },
+                    "property_key": {
+                        "type": "integer",
+                        "description": "Retrieve full detail for a single property by its unique integer key.",
+                    },
+                    "assessment_detail": {
+                        "type": "boolean",
+                        "description": "If true, return per-year, per-taxing-unit tax assessment breakdown. Requires property_key.",
+                    },
+                },
+                "required": [],
             },
         },
     },
@@ -1556,12 +1635,18 @@ async def _get_tools_for_user(user_id: str | None = None) -> list[dict[str, Any]
 # Distinctive keyword sets per route. Intentionally high-signal only —
 # generic words are left out so ambiguous prompts fall through to gpt-5-mini.
 _CLASSIFY_KEYWORDS: dict[str, set[str]] = {
+    "TxTaxLeads": {
+        # Any tax delinquent mention with a Texas signal routes here first
+        "tax delinquent", "tax lien", "delinquent tax", "delinquent taxes",
+        "back taxes", "impuestos atrasados", "deuda de impuestos",
+        "propiedades con impuestos atrasados",
+    },
     "Leads": {
-        "lead", "leads", "pre-foreclosure", "pre-foreclosures", "preforeclosure",
+        "leads", "pre-foreclosure", "pre-foreclosures", "preforeclosure",
         "foreclosure", "foreclosures", "foreclosed", "fsbo", "for sale by owner",
         "tired landlord", "tired landlords", "absentee owner", "absentee owners",
-        "absentee", "motivated seller", "motivated sellers", "tax delinquent",
-        "tax lien", "probate", "lis pendens", "reo", "bank owned", "bank-owned",
+        "absentee", "motivated seller", "motivated sellers",
+        "probate", "lis pendens", "reo", "bank owned", "bank-owned",
         "vacant property", "vacant properties", "high equity", "free and clear",
         "code violation", "hud home", "hud homes", "off-market", "off market",
         "offmarket", "landlord", "landlords", "distressed", "inherited", "inheritance",
@@ -1598,6 +1683,7 @@ _CLASSIFY_KEYWORDS: dict[str, set[str]] = {
 
 # Map route label → tool hint injected into the orchestration system prompt
 _ROUTE_TOOL_HINT: dict[str, str] = {
+    "TxTaxLeads": "Call mcp_tx_tax_leads. Derive county_name from the location the user mentioned.",
     "Leads": "Call mcp_leads_context immediately.",
     "Buyers": "Call mcp_buyers_search immediately.",
     "Comps": "Call mcp_bricked_comps immediately.",
@@ -1627,8 +1713,10 @@ async def _classify_user_intent(prompt: str, user_id: str | None = None) -> str 
 
     best_score = max(scores.values(), default=0)
     if best_score >= 1:
-        # Ensure there is exactly one winner at the top score
         winners = [r for r, s in scores.items() if s == best_score]
+        # TxTaxLeads is more specific than Leads — break ties in its favour
+        if set(winners) == {"TxTaxLeads", "Leads"}:
+            winners = ["TxTaxLeads"]
         if len(winners) == 1:
             logger.info("[classify] keyword fast-path → %s (score=%d)", winners[0], best_score)
             return winners[0]

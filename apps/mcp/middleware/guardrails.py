@@ -265,6 +265,7 @@ TOOL_ALLOWLIST: dict[Intent, frozenset[str]] = {
         "/tools/comps",
         "/tools/bricked-comps",
         "/tools/attorneys",
+        "/tools/tx-tax-leads",
         # General tools also allowed for core queries
         "/tools/education",
         "/tools/strategy",

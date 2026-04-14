@@ -2016,6 +2016,352 @@ async def tool_bricked_comps():
     return _ok("bricked-comps", payload), 200
 
 
+@app.post("/tools/tx-tax-leads")
+async def tool_tx_tax_leads():
+    """
+    Texas tax delinquent property search — Elite subscribers only.
+
+    Accepts structured filter parameters from the model and executes a
+    constrained parameterized query against fact_property_latest in the
+    taxdelinquent database. The model never constructs SQL.
+
+    Modes:
+      - Search (default): query with filters, return HTML preview + count
+      - Detail: property_key provided → full property record
+      - Assessment: property_key + assessment_detail=true → year/unit breakdown
+    """
+    from quart import jsonify
+
+    req = await _read_tool_request()
+    args: dict[str, Any] = req.arguments if isinstance(req.arguments, dict) else {}
+
+    try:
+        from services.tx_tax_delinquent import (
+            query_properties,
+            query_property_detail,
+            query_assessment,
+        )
+    except ImportError as exc:
+        logger.error("[tx-tax-leads] Failed to import service: %s", exc)
+        return _ok("tx-tax-leads", {
+            "status": "error",
+            "message": "Tax delinquent service unavailable.",
+        }), 200
+
+    property_key = args.get("property_key")
+    assessment_detail = bool(args.get("assessment_detail", False))
+
+    # ----------------------------------------------------------------
+    # Assessment breakdown mode
+    # ----------------------------------------------------------------
+    if property_key is not None and assessment_detail:
+        result = query_assessment(int(property_key))
+        rows = result.get("rows", [])
+
+        if result["status"] == "ok" and rows:
+            preview = _tx_assessment_html_table(rows)
+            route_prompt = (
+                "Present the tax assessment breakdown as a clear table with columns: "
+                "Year, Taxing Unit, Base Tax, Penalty, Interest, Attorney Fees, Total Due. "
+                "Summarize the total owed across all units and years. "
+                "Note any suit or judgment entries. "
+                "Format monetary values with commas and two decimal places (e.g. $12,345.67)."
+            )
+        else:
+            preview = None
+            route_prompt = ""
+
+        return _ok("tx-tax-leads", {
+            "mode": "assessment",
+            "property_key": property_key,
+            "status": result["status"],
+            "count": len(rows),
+            "preview": preview,
+            "route_system_prompt": route_prompt,
+            "message": result.get("message", ""),
+        }), 200
+
+    # ----------------------------------------------------------------
+    # Property detail mode
+    # ----------------------------------------------------------------
+    if property_key is not None:
+        result = query_property_detail(int(property_key))
+
+        if result["status"] == "ok":
+            row = result["row"]
+            preview = _tx_detail_html(row)
+            route_prompt = (
+                "Present this property's full details in a clear, readable format. "
+                "Include: address, owner info, appraisal values, total amount due "
+                "(broken down into base taxes, penalty/interest, and attorney fees), "
+                "delinquency history (first delinquent year, years delinquent), "
+                "and lawsuit/judgment status. "
+                "Format monetary values with commas and two decimal places. "
+                "Suggest follow-up actions such as pulling the assessment breakdown or "
+                "looking up owner contact info."
+            )
+        else:
+            preview = None
+            route_prompt = ""
+
+        return _ok("tx-tax-leads", {
+            "mode": "detail",
+            "property_key": property_key,
+            "status": result["status"],
+            "property": result.get("row"),
+            "preview": preview,
+            "route_system_prompt": route_prompt,
+            "message": result.get("message", ""),
+        }), 200
+
+    # ----------------------------------------------------------------
+    # Search mode
+    # ----------------------------------------------------------------
+    result = query_properties(args)
+    rows = result.get("rows", [])
+    count = result.get("count", 0)
+    county_name = result.get("county_name")
+    status = result["status"]
+
+    # Build HTML preview table (up to 25 rows for inline display)
+    preview = _tx_search_html_table(rows[:25]) if rows else None
+
+    # Excel export — run a second random-order query (up to 250 rows) so each
+    # export surfaces different properties rather than the same deterministic top-N.
+    excel_link: str | None = None
+    if status == "ok" and rows:
+        try:
+            import pandas as pd
+            from services.azure_blob import AzureBlobService
+
+            export_filters = {**args, "limit": 250, "offset": 0, "random_export": True}
+            export_result = query_properties(export_filters)
+            export_rows = export_result.get("rows", []) or rows  # fall back to search rows on error
+            df = pd.DataFrame(export_rows)
+
+            county_slug = (county_name or "statewide").lower().replace(" ", "_")
+            timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+            file_name = f"tx_delinquent_{county_slug}_{timestamp}.xlsx"
+            container = os.environ.get("AZURE_BLOB_CONTAINER_NAME", "leads-test")
+
+            blob = AzureBlobService.get_instance()
+            excel_link = blob.upload_dataframe(container, file_name, df, sheet_name="TX Tax Delinquent")
+            logger.info("[tx-tax-leads] exported %d rows → %s", len(export_rows), file_name)
+        except Exception as exc:
+            logger.warning("[tx-tax-leads] Excel export failed: %s", exc)
+            excel_link = None
+
+    # Build route_system_prompt based on result status
+    if status == "ok":
+        county_label = f"in {county_name} County" if county_name else "statewide"
+        excel_note = (
+            f" An Excel file with all {count} properties is ready to download."
+            if excel_link
+            else ""
+        )
+        route_prompt = (
+            f"I found {count} Texas tax delinquent properties {county_label} matching the search criteria.{excel_note} "
+            "Present the results as a summary table with columns: "
+            "Address, City, Owner, Total Due, Years Delinquent, Lawsuit, Judgment. "
+            "Format monetary values with commas and two decimal places. "
+            "After the table, highlight the top 3 highest-value opportunities. "
+            + (
+                f"Share the Excel download link prominently: {excel_link}  "
+                if excel_link
+                else ""
+            )
+            + "Offer to: show property detail for a specific property_key, "
+            "filter further (by amount, owner type, lawsuit status, etc.), "
+            "or retrieve the tax assessment breakdown for any property. "
+            "Never reveal internal database details, property_key integers, or raw SQL. "
+            "If the user wants to refine, ask which criteria to add or change."
+        )
+    elif status == "no_results":
+        route_prompt = (
+            "No matching delinquent properties were found. "
+            "Suggest the user broaden their search — try a different county name, "
+            "remove amount filters, or reduce years_delinquent requirement. "
+            "Do not invent properties."
+        )
+    elif status == "config_missing":
+        route_prompt = (
+            "The Texas tax delinquent data source is not available at this time. "
+            "Apologize briefly and suggest the user contact support."
+        )
+    else:
+        route_prompt = (
+            "The search encountered an error. "
+            "Apologize briefly and relay the error message to the user. "
+            "Suggest trying again or contacting support."
+        )
+
+    return _ok("tx-tax-leads", {
+        "mode": "search",
+        "status": status,
+        "count": count,
+        "county_name": county_name,
+        "preview": preview,
+        "excel_link": excel_link,
+        "filters_applied": result.get("filters_applied", {}),
+        "route_system_prompt": route_prompt,
+        "message": result.get("message", ""),
+    }), 200
+
+
+# ---------------------------------------------------------------------------
+# TX tax delinquent HTML formatting helpers
+# ---------------------------------------------------------------------------
+
+def _tx_search_html_table(rows: list[dict[str, Any]]) -> str:
+    """Format a list of fact_property_latest rows as an HTML preview table."""
+    if not rows:
+        return ""
+
+    headers = [
+        ("situs_address", "Address"),
+        ("situs_city", "City"),
+        ("owner_name", "Owner"),
+        ("owner_mail_state", "Owner State"),
+        ("sptb_code", "Type"),
+        ("market_value", "Market Value"),
+        ("total_amount_due", "Total Due"),
+        ("years_delinquent", "Yrs Delinquent"),
+        ("has_lawsuit", "Lawsuit"),
+        ("has_judgment", "Judgment"),
+        ("property_key", "Property Key"),
+    ]
+
+    th_cells = "".join(f"<th>{label}</th>" for _, label in headers)
+    head = f"<thead><tr>{th_cells}</tr></thead>"
+
+    def _fmt(key: str, val: Any) -> str:
+        if val is None:
+            return ""
+        if key in ("market_value", "total_amount_due"):
+            try:
+                return f"${float(val):,.2f}"
+            except (TypeError, ValueError):
+                return str(val)
+        if isinstance(val, bool):
+            return "Yes" if val else "No"
+        return str(val)
+
+    tbody_rows = []
+    for row in rows:
+        cells = "".join(
+            f"<td>{_fmt(col, row.get(col))}</td>" for col, _ in headers
+        )
+        tbody_rows.append(f"<tr>{cells}</tr>")
+
+    tbody = f"<tbody>{''.join(tbody_rows)}</tbody>"
+    return f"<table>{head}{tbody}</table>"
+
+
+def _tx_detail_html(row: dict[str, Any]) -> str:
+    """Format a single property detail row as an HTML definition list."""
+    if not row:
+        return ""
+
+    def _fmt_val(key: str, val: Any) -> str:
+        if val is None:
+            return "N/A"
+        if key in (
+            "land_value", "improvement_value", "market_value",
+            "assessed_value", "total_amount_due",
+            "total_penalty_interest", "total_attorney_fees",
+        ):
+            try:
+                return f"${float(val):,.2f}"
+            except (TypeError, ValueError):
+                return str(val)
+        if isinstance(val, bool):
+            return "Yes" if val else "No"
+        return str(val)
+
+    fields = [
+        ("situs_address", "Address"),
+        ("situs_city", "City"),
+        ("situs_zip", "ZIP"),
+        ("owner_name", "Owner"),
+        ("owner_mail_address", "Owner Mail Address"),
+        ("owner_mail_city", "Owner Mail City"),
+        ("owner_mail_state", "Owner Mail State"),
+        ("owner_mail_zip", "Owner Mail ZIP"),
+        ("sptb_code", "Property Type"),
+        ("legal_desc", "Legal Description"),
+        ("acreage", "Acreage"),
+        ("year_built", "Year Built"),
+        ("land_value", "Land Value"),
+        ("improvement_value", "Improvement Value"),
+        ("market_value", "Market Value"),
+        ("assessed_value", "Assessed Value"),
+        ("total_amount_due", "Total Amount Due"),
+        ("total_penalty_interest", "Penalty & Interest"),
+        ("total_attorney_fees", "Attorney Fees"),
+        ("is_delinquent", "Delinquent"),
+        ("has_lawsuit", "Lawsuit"),
+        ("has_judgment", "Judgment"),
+        ("first_delinquent_year", "First Delinquent Year"),
+        ("years_delinquent", "Years Delinquent"),
+        ("county_name", "County"),
+        ("tax_account", "Tax Account"),
+    ]
+
+    items = "".join(
+        f"<dt>{label}</dt><dd>{_fmt_val(key, row.get(key))}</dd>"
+        for key, label in fields
+    )
+    return f"<dl>{items}</dl>"
+
+
+def _tx_assessment_html_table(rows: list[dict[str, Any]]) -> str:
+    """Format fact_tax_assessment rows as an HTML table."""
+    if not rows:
+        return ""
+
+    headers = [
+        ("tax_year", "Year"),
+        ("taxing_unit_name", "Taxing Unit"),
+        ("base_tax", "Base Tax"),
+        ("base_taxes_paid", "Paid"),
+        ("base_tax_due", "Base Due"),
+        ("penalty_interest", "Penalty & Interest"),
+        ("attorney_fees", "Atty Fees"),
+        ("amount_due", "Total Due"),
+        ("is_paid", "Paid?"),
+        ("suit_flag", "Suit"),
+        ("cause_number", "Cause #"),
+        ("judgment_date", "Judgment Date"),
+    ]
+
+    th_cells = "".join(f"<th>{label}</th>" for _, label in headers)
+    head = f"<thead><tr>{th_cells}</tr></thead>"
+
+    _money_keys = {"base_tax", "base_taxes_paid", "base_tax_due", "penalty_interest", "attorney_fees", "amount_due"}
+
+    def _fmt(key: str, val: Any) -> str:
+        if val is None:
+            return ""
+        if key in _money_keys:
+            try:
+                return f"${float(val):,.2f}"
+            except (TypeError, ValueError):
+                return str(val)
+        if isinstance(val, bool):
+            return "Yes" if val else "No"
+        return str(val)
+
+    tbody_rows = []
+    for row in rows:
+        cells = "".join(
+            f"<td>{_fmt(col, row.get(col))}</td>" for col, _ in headers
+        )
+        tbody_rows.append(f"<tr>{cells}</tr>")
+
+    tbody = f"<tbody>{''.join(tbody_rows)}</tbody>"
+    return f"<table>{head}{tbody}</table>"
+
+
 @app.errorhandler(404)
 async def not_found(_):
     return {"error": "Not found"}, 404
