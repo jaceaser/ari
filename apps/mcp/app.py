@@ -2119,16 +2119,17 @@ async def tool_tx_tax_leads():
     # ----------------------------------------------------------------
     result = query_properties(args)
     rows = result.get("rows", [])
-    count = result.get("count", 0)
+    total_count = result.get("total_count", result.get("count", 0))
     county_name = result.get("county_name")
     status = result["status"]
 
     # Build HTML preview table (up to 25 rows for inline display)
     preview = _tx_search_html_table(rows[:25]) if rows else None
 
-    # Excel export — run a second random-order query (up to 250 rows) so each
-    # export surfaces different properties rather than the same deterministic top-N.
+    # Excel export — always run a fresh query with limit=250 and ORDER BY RANDOM()
+    # so the export surfaces up to 250 rows regardless of the inline preview limit.
     excel_link: str | None = None
+    export_count: int = 0
     if status == "ok" and rows:
         try:
             import pandas as pd
@@ -2136,7 +2137,8 @@ async def tool_tx_tax_leads():
 
             export_filters = {**args, "limit": 250, "offset": 0, "random_export": True}
             export_result = query_properties(export_filters)
-            export_rows = export_result.get("rows", []) or rows  # fall back to search rows on error
+            export_rows = export_result.get("rows") or rows  # fall back only if export returns nothing
+            export_count = len(export_rows)
             df = pd.DataFrame(export_rows)
 
             county_slug = (county_name or "statewide").lower().replace(" ", "_")
@@ -2146,7 +2148,7 @@ async def tool_tx_tax_leads():
 
             blob = AzureBlobService.get_instance()
             excel_link = blob.upload_dataframe(container, file_name, df, sheet_name="TX Tax Delinquent")
-            logger.info("[tx-tax-leads] exported %d rows → %s", len(export_rows), file_name)
+            logger.info("[tx-tax-leads] exported %d rows → %s", export_count, file_name)
         except Exception as exc:
             logger.warning("[tx-tax-leads] Excel export failed: %s", exc)
             excel_link = None
@@ -2155,12 +2157,13 @@ async def tool_tx_tax_leads():
     if status == "ok":
         county_label = f"in {county_name} County" if county_name else "statewide"
         excel_note = (
-            f" An Excel file with all {count} properties is ready to download."
+            f" An Excel file with {export_count} randomly-sampled properties (out of {total_count:,} total) is ready to download."
             if excel_link
             else ""
         )
         route_prompt = (
-            f"I found {count} Texas tax delinquent properties {county_label} matching the search criteria.{excel_note} "
+            f"There are {total_count:,} Texas tax delinquent properties {county_label} matching the search criteria. "
+            f"Showing a sample of {min(len(rows), 25)} inline.{excel_note} "
             "Present the results as a summary table with columns: "
             "Address, City, Owner, Total Due, Years Delinquent, Lawsuit, Judgment. "
             "Format monetary values with commas and two decimal places. "

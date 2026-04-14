@@ -374,6 +374,7 @@ def query_properties(filters: dict[str, Any]) -> dict[str, Any]:
         return {
             "status": "config_missing",
             "count": 0,
+            "total_count": 0,
             "rows": [],
             "county_key": None,
             "county_name": None,
@@ -393,6 +394,7 @@ def query_properties(filters: dict[str, Any]) -> dict[str, Any]:
             return {
                 "status": "error",
                 "count": 0,
+                "total_count": 0,
                 "rows": [],
                 "county_key": None,
                 "county_name": county_name,
@@ -409,6 +411,7 @@ def query_properties(filters: dict[str, Any]) -> dict[str, Any]:
         return {
             "status": "error",
             "count": 0,
+            "total_count": 0,
             "rows": [],
             "county_key": county_key,
             "county_name": county_name,
@@ -420,21 +423,30 @@ def query_properties(filters: dict[str, Any]) -> dict[str, Any]:
         import psycopg2
         import psycopg2.extras
 
+        # Build a COUNT(*) query using the same WHERE clause (no LIMIT/OFFSET).
+        count_sql = f"SELECT COUNT(*) FROM fact_property_latest WHERE {where_clause}"
+        # params contains limit/offset keys that aren't in count_sql — psycopg2
+        # ignores extra keys in %(name)s style, so this is safe.
+
         with psycopg2.connect(conn_str) as conn:
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
                 cur.execute(sql, params)
                 rows = [dict(r) for r in cur.fetchall()]
+            with conn.cursor() as cur:
+                cur.execute(count_sql, params)
+                total_count: int = cur.fetchone()[0]
 
         elapsed = time.monotonic() - t0
         logger.info(
-            "[tx_delinquent] query ok: county=%r county_key=%s rows=%d elapsed=%.2fs",
-            county_name, county_key, len(rows), elapsed,
+            "[tx_delinquent] query ok: county=%r county_key=%s rows=%d total=%d elapsed=%.2fs",
+            county_name, county_key, len(rows), total_count, elapsed,
         )
 
         if not rows:
             return {
                 "status": "no_results",
                 "count": 0,
+                "total_count": 0,
                 "rows": [],
                 "county_key": county_key,
                 "county_name": county_name,
@@ -448,6 +460,7 @@ def query_properties(filters: dict[str, Any]) -> dict[str, Any]:
         return {
             "status": "ok",
             "count": len(rows),
+            "total_count": total_count,
             "rows": rows,
             "county_key": county_key,
             "county_name": county_name,
@@ -464,6 +477,7 @@ def query_properties(filters: dict[str, Any]) -> dict[str, Any]:
         return {
             "status": "error",
             "count": 0,
+            "total_count": 0,
             "rows": [],
             "county_key": county_key,
             "county_name": county_name,
