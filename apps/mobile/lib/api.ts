@@ -276,7 +276,10 @@ export function streamMessage(
 
 export type UserProfile = {
   email: string;
-  tier: string;
+  tier: 'free' | 'lite' | 'elite';
+  daily_prompt_limit: number;
+  prompts_used_today: number;
+  subscription_platform: 'apple' | 'stripe' | null;
 };
 
 export async function getUserProfile(): Promise<UserProfile> {
@@ -298,4 +301,16 @@ export async function getBillingStatus(): Promise<BillingStatus> {
 
 export async function createPortalSession(): Promise<{ url: string }> {
   return apiFetch('/billing/create-portal', { method: 'POST' });
+}
+
+export async function syncAppleSubscription(payload: {
+  product_id: 'ari_lite' | 'ari_elite';
+  status?: 'active' | 'trialing' | 'cancelled' | 'expired';
+  transaction_id?: string;
+  original_transaction_id?: string;
+}): Promise<{ ok: boolean; tier: 'lite' | 'elite'; plan: string; status: string }> {
+  return apiFetch('/subscriptions/apple/sync', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
 }

@@ -19,10 +19,6 @@ export default function WelcomeScreen() {
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
 
-  const handleSubscribe = async () => {
-    await WebBrowser.openBrowserAsync('https://reilabs.ai/products/');
-  };
-
   return (
     <SafeAreaView style={styles.safe}>
       <View style={styles.container}>
@@ -43,24 +39,20 @@ export default function WelcomeScreen() {
             <Text style={styles.primaryButtonText}>{t('auth.signIn')}</Text>
           </TouchableOpacity>
 
-          {Platform.OS !== 'ios' && (
-            <TouchableOpacity
-              style={styles.secondaryButton}
-              onPress={handleSubscribe}
-              activeOpacity={0.85}
-            >
-              <Text style={styles.secondaryButtonText}>{t('auth.subscribe')}</Text>
-            </TouchableOpacity>
-          )}
+          <TouchableOpacity
+            style={styles.secondaryButton}
+            onPress={() => router.push({ pathname: '/(auth)/login', params: { redirectTo: '/(app)/subscribe' } })}
+            activeOpacity={0.85}
+          >
+            <Text style={styles.secondaryButtonText}>{t('auth.subscribe')}</Text>
+          </TouchableOpacity>
 
-          {Platform.OS === 'ios' && (
-            <TouchableOpacity
-              onPress={() => WebBrowser.openBrowserAsync('https://reilabs.ai')}
-              activeOpacity={0.6}
-            >
-              <Text style={styles.learnMoreText}>Learn more at reilabs.ai</Text>
-            </TouchableOpacity>
-          )}
+          <TouchableOpacity
+            onPress={() => WebBrowser.openBrowserAsync('https://reilabs.ai')}
+            activeOpacity={0.6}
+          >
+            <Text style={styles.learnMoreText}>Learn more at reilabs.ai</Text>
+          </TouchableOpacity>
         </View>
       </View>
     </SafeAreaView>

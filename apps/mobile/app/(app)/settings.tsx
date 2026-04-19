@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -9,12 +9,13 @@ import {
   Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
 import { Ionicons } from '@expo/vector-icons';
 import { useTranslation } from 'react-i18next';
+import { useIAP } from 'expo-iap';
 import { clearAuth, isAuthenticated } from '../../lib/auth';
-import { getUserProfile } from '../../lib/api';
+import { getUserProfile, syncAppleSubscription } from '../../lib/api';
 import type { UserProfile } from '../../lib/api';
 import { useColors } from '../../lib/theme-context';
 import { ColorTokens } from '../../lib/colors';
@@ -25,8 +26,21 @@ export default function SettingsScreen() {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const colors = useColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
+  const { restorePurchases } = useIAP({
+    onPurchaseSuccess: async (purchase) => {
+      const productId = purchase.productId as 'ari_lite' | 'ari_elite';
+      if (productId !== 'ari_lite' && productId !== 'ari_elite') return;
+      await syncAppleSubscription({
+        product_id: productId,
+        status: 'active',
+        transaction_id: purchase.transactionId ?? undefined,
+        original_transaction_id: purchase.originalTransactionIdentifierIOS ?? undefined,
+      }).catch(() => {});
+      getUserProfile().then(setProfile).catch(() => {});
+    },
+  });
 
-  useEffect(() => {
+  useFocusEffect(useCallback(() => {
     getUserProfile()
       .then(setProfile)
       .catch((err: Error) => {
@@ -34,7 +48,7 @@ export default function SettingsScreen() {
           clearAuth().then(() => router.replace('/(auth)'));
         }
       });
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [router]));
 
   const handleSignOut = () => {
     Alert.alert(t('settings.signOutConfirmTitle'), t('settings.signOutConfirmMessage'), [
@@ -54,8 +68,8 @@ export default function SettingsScreen() {
     await WebBrowser.openBrowserAsync('https://billing.stripe.com/p/login/aFa7sK4J91hJ5yVbxs5kk00');
   };
 
-  const handleLearnMore = async () => {
-    await WebBrowser.openBrowserAsync('https://reilabs.ai');
+  const handleSubscribe = () => {
+    router.push('/(app)/subscribe');
   };
 
   const tierRaw = profile?.tier ?? 'free';
@@ -103,12 +117,44 @@ export default function SettingsScreen() {
 
         {Platform.OS === 'ios' && (
           <>
-            <Text style={styles.sectionLabel}>ACCOUNT INFO</Text>
+            <Text style={styles.sectionLabel}>SUBSCRIPTION</Text>
             <View style={styles.card}>
+              {tierRaw === 'free' ? (
+                <RowItem
+                  icon="star-outline"
+                  label="Upgrade subscription"
+                  onPress={handleSubscribe}
+                  colors={colors}
+                />
+              ) : profile?.subscription_platform === 'apple' ? (
+                <>
+                  {tierRaw === 'lite' && (
+                    <RowItem
+                      icon="star-outline"
+                      label="Upgrade to Elite"
+                      onPress={handleSubscribe}
+                      colors={colors}
+                    />
+                  )}
+                  <RowItem
+                    icon="card-outline"
+                    label="Manage subscription"
+                    onPress={() => WebBrowser.openBrowserAsync('https://apps.apple.com/account/subscriptions')}
+                    colors={colors}
+                  />
+                </>
+              ) : (
+                <RowItem
+                  icon="card-outline"
+                  label="Manage subscription"
+                  onPress={() => WebBrowser.openBrowserAsync('https://billing.stripe.com/p/login/aFa7sK4J91hJ5yVbxs5kk00')}
+                  colors={colors}
+                />
+              )}
               <RowItem
-                icon="globe-outline"
-                label="Manage your account at reilabs.ai"
-                onPress={handleLearnMore}
+                icon="refresh-outline"
+                label="Restore purchases"
+                onPress={() => restorePurchases().then(() => getUserProfile().then(setProfile))}
                 colors={colors}
               />
             </View>

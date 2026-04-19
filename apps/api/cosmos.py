@@ -721,6 +721,7 @@ class SessionsCosmosClient:
                     "subscription_status": item.get("subscription_status"),
                     "subscription_id": item.get("subscription_id"),
                     "stripe_customer_id": item.get("stripe_customer_id"),
+                    "apple_product_id": item.get("apple_product_id"),
                     "plan": item.get("plan"),
                     "subscription_expires_at": item.get("subscription_expires_at"),
                     "tier": item.get("tier"),

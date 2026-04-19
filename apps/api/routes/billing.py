@@ -58,6 +58,7 @@ async def users_me():
     daily_prompt_limit = FREE_DAILY_PROMPT_LIMIT if tier == "free" else -1
     prompts_used_today = 0
 
+    subscription_platform = None
     cosmos = SessionsCosmosClient.get_instance()
     if cosmos:
         start_of_day_utc = datetime.now(timezone.utc).replace(
@@ -67,12 +68,19 @@ async def users_me():
             user_id=user_id,
             since_iso=start_of_day_utc.isoformat(),
         )
+        sub = await cosmos.get_user_subscription(user_id)
+        if sub:
+            if sub.get("apple_product_id"):
+                subscription_platform = "apple"
+            elif sub.get("stripe_customer_id"):
+                subscription_platform = "stripe"
 
     return jsonify({
         "email": email,
         "tier": tier,
         "daily_prompt_limit": daily_prompt_limit,
         "prompts_used_today": prompts_used_today,
+        "subscription_platform": subscription_platform,
     })
 
 
@@ -116,6 +124,10 @@ async def apple_subscription_sync():
         "apple_transaction_id": transaction_id or None,
         "apple_original_transaction_id": original_transaction_id or None,
     })
+
+    # Bust the in-process tier cache so the next request sees the new tier immediately
+    from app import _tier_cache
+    _tier_cache.pop(user_id, None)
 
     return jsonify({
         "ok": True,

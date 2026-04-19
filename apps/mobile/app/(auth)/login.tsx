@@ -12,7 +12,7 @@ import {
   SafeAreaView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
 import { useTranslation } from 'react-i18next';
 import { sendMagicLink, verifyMagicLink, verifyReviewCode } from '../../lib/api';
@@ -25,6 +25,10 @@ type SendStatus = 'pending' | 'ok' | 'error' | 'rate_limited';
 export default function LoginScreen() {
   const { t } = useTranslation();
   const router = useRouter();
+  const params = useLocalSearchParams<{ redirectTo?: string }>();
+  const postLoginRoute = typeof params.redirectTo === 'string' && params.redirectTo
+    ? params.redirectTo
+    : '/(app)';
   const [email, setEmail] = useState('');
   const [sent, setSent] = useState(false);
   const [sendStatus, setSendStatus] = useState<SendStatus>('pending');
@@ -57,7 +61,7 @@ export default function LoginScreen() {
       try {
         const data = await verifyReviewCode(trimmed.toUpperCase());
         await saveAuth(data.token, data.user);
-        router.replace('/(app)');
+        router.replace(postLoginRoute as any);
       } catch (err: any) {
         Alert.alert('Invalid code', err?.message ?? 'Code is invalid or expired.');
       } finally {
@@ -82,7 +86,7 @@ export default function LoginScreen() {
     try {
       const data = await verifyMagicLink(t);
       await saveAuth(data.token, data.user);
-      router.replace('/(app)');
+      router.replace(postLoginRoute as any);
     } catch (err: any) {
       Alert.alert('Invalid token', err?.message ?? 'Token is invalid or expired.');
     } finally {
