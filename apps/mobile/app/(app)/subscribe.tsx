@@ -5,7 +5,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useRouter } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
 import { useIAP } from 'expo-iap';
-import ExpoIapModule from 'expo-iap/build/ExpoIapModule';
 import { getUserProfile, syncAppleSubscription } from '../../lib/api';
 import { useColors } from '../../lib/theme-context';
 import { ColorTokens } from '../../lib/colors';
@@ -64,20 +63,11 @@ export default function SubscribeScreen() {
   });
 
   useEffect(() => {
-    console.log('[subscribe] connected:', connected, 'platform:', Platform.OS);
-  }, [connected]);
-
-  useEffect(() => {
     if (!connected || Platform.OS !== 'ios') return;
-    console.log('[subscribe] fetching products:', PRODUCTS);
-    ExpoIapModule.fetchProducts({ skus: [...PRODUCTS], type: 'subs' })
-      .then((raw: any) => console.log('[subscribe] RAW native response:', JSON.stringify(raw)));
     fetchProducts({ skus: [...PRODUCTS], type: 'subs' })
-      .then(() => console.log('[subscribe] fetchProducts done, subscriptions:', subscriptions))
-      .catch((e) => {
-        console.log('[subscribe] fetchProducts error:', e);
+      .catch(() => {
         Alert.alert('Store unavailable', 'Unable to load subscription products right now.');
-    });
+      });
   }, [connected, fetchProducts]);
 
   const byId = useMemo(() => {
