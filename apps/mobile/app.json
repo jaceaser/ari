@@ -73,6 +73,7 @@
     "plugins": [
       "expo-router",
       "expo-secure-store",
+      "expo-iap",
       [
         "expo-image-picker",
         {

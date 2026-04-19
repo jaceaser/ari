@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
+  Alert,
   View,
   FlatList,
   StyleSheet,
@@ -16,6 +17,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Crypto from 'expo-crypto';
 import { useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
+import { useRouter } from 'expo-router';
 import { ChatBubble } from '../../components/ChatBubble';
 import { ChatInput } from '../../components/ChatInput';
 import { ChatHeader } from '../../components/ChatHeader';
@@ -28,10 +30,22 @@ import { ColorTokens } from '../../lib/colors';
 const AT_BOTTOM_THRESHOLD = 50;
 
 export default function NewChatScreen() {
+  const router = useRouter();
   const { t } = useTranslation();
   const [sessionId] = useState(() => Crypto.randomUUID());
   const sessionCreatedRef = useRef(false);
-  const { messages, streaming, sendMessage, stopStreaming, retry } = useChatStream(sessionId);
+  const { messages, streaming, sendMessage, stopStreaming, retry } = useChatStream(sessionId, {
+    onFreeTierLimitReached: () => {
+      Alert.alert(
+        'Daily limit reached',
+        'You have used all free prompts for today. Upgrade to continue.',
+        [
+          { text: 'Not now', style: 'cancel' },
+          { text: 'Upgrade', onPress: () => router.push('/(app)/subscribe') },
+        ],
+      );
+    },
+  });
   const { isConnected } = useNetworkStatus();
   const listRef = useRef<FlatList>(null);
   const queryClient = useQueryClient();

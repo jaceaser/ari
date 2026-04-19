@@ -43,7 +43,11 @@ function friendlyError(err: Error): string {
   return msg || i18n.t('errors.generic');
 }
 
-export function useChatStream(sessionId: string) {
+type UseChatStreamOptions = {
+  onFreeTierLimitReached?: () => void;
+};
+
+export function useChatStream(sessionId: string, options?: UseChatStreamOptions) {
   const [messages, setMessages] = useState<ChatMessageItem[]>([]);
   const [streaming, setStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -230,6 +234,12 @@ export function useChatStream(sessionId: string) {
                 .catch(() => { /* silently ignore */ });
             }, TRUNCATION_REFETCH_DELAY_MS);
             return;
+          }
+          if (
+            err.message.toLowerCase().includes('daily prompt limit reached')
+            || err.message.toLowerCase().includes('free_tier_limit_reached')
+          ) {
+            options?.onFreeTierLimitReached?.();
           }
           setError(err.message);
           setMessages((prev) =>

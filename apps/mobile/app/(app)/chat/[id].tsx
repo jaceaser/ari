@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import {
   Animated,
+  Alert,
   View,
   FlatList,
   StyleSheet,
@@ -11,7 +12,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { ChatBubble } from '../../../components/ChatBubble';
 import { ChatInput } from '../../../components/ChatInput';
 import { ChatHeader } from '../../../components/ChatHeader';
@@ -26,6 +27,7 @@ import { ColorTokens } from '../../../lib/colors';
 const AT_BOTTOM_THRESHOLD = 50;
 
 export default function ChatScreen() {
+  const router = useRouter();
   const { t } = useTranslation();
   const { id } = useLocalSearchParams<{ id: string }>();
   const listRef = useRef<FlatList>(null);
@@ -37,7 +39,18 @@ export default function ChatScreen() {
   const layoutHeightRef = useRef(0);
   const scrollOffsetRef = useRef(0);
 
-  const { messages, streaming, sendMessage, stopStreaming, retry, loadMessages } = useChatStream(id);
+  const { messages, streaming, sendMessage, stopStreaming, retry, loadMessages } = useChatStream(id, {
+    onFreeTierLimitReached: () => {
+      Alert.alert(
+        'Daily limit reached',
+        'You have used all free prompts for today. Upgrade to continue.',
+        [
+          { text: 'Not now', style: 'cancel' },
+          { text: 'Upgrade', onPress: () => router.push('/(app)/subscribe') },
+        ],
+      );
+    },
+  });
   const { isConnected } = useNetworkStatus();
 
   const { data: session } = useQuery({
