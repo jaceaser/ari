@@ -44,9 +44,9 @@ class Settings(BaseSettings):
 
     # Agent behavior
     run_month_override: Optional[str] = Field(None, alias="RUN_MONTH_OVERRIDE")
-    cache_ttl_days_tier1: int = Field(7, alias="CACHE_TTL_DAYS_TIER1")
-    cache_ttl_days_tier2: int = Field(14, alias="CACHE_TTL_DAYS_TIER2")
-    cache_ttl_days_tier3: int = Field(30, alias="CACHE_TTL_DAYS_TIER3")
+    cache_ttl_days_tier1: int = Field(1, alias="CACHE_TTL_DAYS_TIER1")
+    cache_ttl_days_tier2: int = Field(7, alias="CACHE_TTL_DAYS_TIER2")
+    cache_ttl_days_tier3: int = Field(14, alias="CACHE_TTL_DAYS_TIER3")
     max_concurrent_scrapes: int = Field(5, alias="MAX_CONCURRENT_SCRAPES")
 
     # Obituary scraper — backfill vs daily sync have different default concurrency
