@@ -23,26 +23,27 @@ def cli():
 
 
 @cli.command("monthly-refresh")
-@click.option("--tier", default=1, show_default=True, help="Max priority tier (1=top100)")
+@click.option("--tier", default=1, show_default=True, help="Max priority tier")
+@click.option("--min-tier", "min_tier", default=1, show_default=True, help="Min priority tier (use with --tier to target an exact tier)")
 @click.option(
     "--lead-types", "lead_types", default=None,
     help="Comma-separated lead type slugs to run (default: all active). "
          "e.g. pre_foreclosure,fsbo",
 )
-def monthly_refresh(tier: int, lead_types: str):
+def monthly_refresh(tier: int, min_tier: int, lead_types: str):
     """Run scheduled refresh for all tier-N geographies.
 
-    Use --lead-types to target specific lead types, enabling
-    different Container Apps Job schedules per cadence group.
+    Use --min-tier and --tier together to target an exact tier, e.g.
+    --min-tier 2 --tier 2 runs only tier-2 geographies.
 
     Examples:
-      Weekly:    python -m app.main monthly-refresh --lead-types pre_foreclosure
-      Bi-weekly: python -m app.main monthly-refresh --lead-types fsbo,as_is
-      Monthly:   python -m app.main monthly-refresh --lead-types land,tired_landlord,fixer_upper,subject_to
+      Tier 1 daily:    python -m app.main monthly-refresh --min-tier 1 --tier 1
+      Tier 2 weekly:   python -m app.main monthly-refresh --min-tier 2 --tier 2
+      Tier 3 biweekly: python -m app.main monthly-refresh --min-tier 3 --tier 3
     """
     slugs = [s.strip() for s in lead_types.split(",")] if lead_types else None
     from app.jobs.monthly_refresh_job import main
-    sys.exit(main(lead_type_slugs=slugs, max_tier=tier))
+    sys.exit(main(lead_type_slugs=slugs, max_tier=tier, min_tier=min_tier))
 
 
 @cli.command("on-demand")

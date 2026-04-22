@@ -13,12 +13,13 @@ from app.orchestrators.batch_orchestrator import run_batch
 logger = logging.getLogger(__name__)
 
 
-def main(lead_type_slugs: list[str] | None = None, max_tier: int = 1) -> int:
+def main(lead_type_slugs: list[str] | None = None, max_tier: int = 1, min_tier: int = 1) -> int:
     label = ",".join(lead_type_slugs) if lead_type_slugs else "all"
-    logger.info("monthly_refresh_job_started lead_types=%s tier=%d", label, max_tier)
+    logger.info("monthly_refresh_job_started lead_types=%s tier=%d-%d", label, min_tier, max_tier)
 
     results = run_batch(
         max_tier=max_tier,
+        min_tier=min_tier,
         lead_type_slugs=lead_type_slugs,
         trigger_type=TriggerType.SCHEDULED,
         triggered_by=f"system:scheduled:{label}",

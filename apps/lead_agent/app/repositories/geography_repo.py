@@ -17,10 +17,14 @@ class GeographyRepo:
         row = self._db.query(Geography).filter(Geography.zillow_slug == zillow_slug).first()
         return self._to_domain(row) if row else None
 
-    def get_active_by_tier(self, max_tier: int = 1) -> list[GeographyRecord]:
+    def get_active_by_tier(self, max_tier: int = 1, min_tier: int = 1) -> list[GeographyRecord]:
         rows = (
             self._db.query(Geography)
-            .filter(Geography.is_active == True, Geography.priority_tier <= max_tier)
+            .filter(
+                Geography.is_active == True,
+                Geography.priority_tier >= min_tier,
+                Geography.priority_tier <= max_tier,
+            )
             .order_by(Geography.priority_tier, Geography.state_code, Geography.name)
             .all()
         )

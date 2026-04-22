@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 
 def run_batch(
     max_tier: int = 1,
+    min_tier: int = 1,
     lead_type_slugs: Optional[list[str]] = None,
     trigger_type: TriggerType = TriggerType.SCHEDULED,
     triggered_by: Optional[str] = None,
@@ -29,7 +30,7 @@ def run_batch(
 
     with get_db() as db:
         geo_repo = GeographyRepo(db)
-        geographies = geo_repo.get_active_by_tier(max_tier)
+        geographies = geo_repo.get_active_by_tier(max_tier=max_tier, min_tier=min_tier)
         lead_types = geo_repo.get_active_lead_types()
 
     if lead_type_slugs:
@@ -40,8 +41,8 @@ def run_batch(
     ]
 
     logger.info(
-        "batch_started geos=%d lead_types=%d tasks=%d workers=%d tier=%d",
-        len(geographies), len(lead_types), len(tasks), max_workers, max_tier,
+        "batch_started geos=%d lead_types=%d tasks=%d workers=%d tier=%d-%d",
+        len(geographies), len(lead_types), len(tasks), max_workers, min_tier, max_tier,
     )
 
     def _run_one(geo: GeographyRecord, lt: LeadTypeRecord) -> RunResult:
