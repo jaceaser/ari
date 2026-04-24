@@ -1,0 +1,18 @@
+slug: fractured-equity
+title: Fractured Equity Codex
+description: The complete field manual for acquiring real estate nobody else can touch. Partial interests, heirship curative, partition, tax foreclosure, quiet title.
+productSlug: fractured-equity
+version: "1.0"
+featured:
+  topics:
+    - fractured-equity
+    - partition-action
+    - partial-interest
+  caseStudies:
+    - sixteen-property-family
+    - hostile-cotenant-conversion
+    - simple-cooperative-estate
+  pathways:
+    - co-owner-wont-sell
+    - inherited-property-missing-heirs
+    - title-cleanup-before-sale
