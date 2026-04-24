@@ -76,6 +76,8 @@ export interface CourseConfig {
   description: string;
   productSlug: string;
   version: string;
+  frontPageQuote?: string;
+  frontPageQuoteAttribution?: string;
   featured: {
     topics: string[];
     caseStudies: string[];

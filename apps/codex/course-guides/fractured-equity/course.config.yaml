@@ -3,15 +3,21 @@ title: Fractured Equity Codex
 description: The complete field manual for acquiring real estate nobody else can touch. Partial interests, heirship curative, partition, tax foreclosure, quiet title.
 productSlug: fractured-equity
 version: "1.0"
+frontPageQuote: |
+  Every chapter in this Codex is a door.
+  Every door unlocks a property most people couldn't touch.
+  Every property is a family whose problem finally got solved.
+  That's the work. That's the point. That's the craft.
+frontPageQuoteAttribution: '— Charles "Uncle Charles" Hernandez'
 featured:
   topics:
-    - fractured-equity
-    - partition-action
-    - partial-interest
+    - chapter-01-the-strategy-in-one-sentence
+    - chapter-13-the-fact-pattern-matrix-diagnosing-any-deal-in-twenty-minutes
+    - chapter-25-partition-actions-forcing-the-sale-of-jointly-owned-property
   caseStudies:
-    - sixteen-property-family
-    - hostile-cotenant-conversion
-    - simple-cooperative-estate
+    - cliff-note-001-the-only-child
+    - cliff-note-030-the-mortgage-foreclosure-race
+    - cliff-note-100-the-build-your-own-equity-deal
   pathways:
     - co-owner-wont-sell
     - inherited-property-missing-heirs

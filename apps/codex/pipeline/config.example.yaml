@@ -1,0 +1,69 @@
+# ─── Codex Pipeline Config ──────────────────────────────────────────────────
+# Copy this file to your course-guides/{slug}/ folder as config.yaml and fill
+# in the values.  This is the pipeline config — it is separate from
+# course.config.yaml (which the Next.js app reads).
+#
+# Usage:
+#   python3 pipeline/scripts/extract_manuscript.py --config config.yaml
+#   python3 pipeline/scripts/qa_check.py           --config config.yaml
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Unique slug — must match the course-guides/ directory name
+codex_slug: your-course-slug
+
+# Human-readable title (used in manifest and outline headers)
+codex_title: "Your Course Title"
+
+# Path to the source .docx (relative to this config file)
+manuscript_path: ./MASTER CODEX MANUSCRIPT.docx
+
+# Where extraction output goes (relative to this config file)
+extracted_path: ./extracted
+
+# Root of the course output (where topics/, case-studies/, etc. live)
+# Relative to this config file.  Usually "." for a course in its own folder.
+course_output_path: .
+
+# ─── Front page ──────────────────────────────────────────────────────────────
+# These are written into course.config.yaml by the 03_landing_page prompt
+# and rendered as a pull quote on the Hero slide.
+front_page_quote: |
+  Every chapter in this Codex is a door.
+  Every door unlocks a property most people couldn't touch.
+  Every property is a family whose problem finally got solved.
+  That's the work. That's the point. That's the craft.
+front_page_quote_attribution: '— Charles "Uncle Charles" Hernandez'
+
+# ─── Branding ─────────────────────────────────────────────────────────────────
+branding:
+  primary_color: "#F7C35D"       # ARI gold
+  accent_color: "#3BB298"        # ARI teal
+
+# ─── Manuscript structure ─────────────────────────────────────────────────────
+# These tell the extractor how to identify document sections.
+# Adjust if your manuscript uses different heading styles.
+manuscript_structure:
+  # Chapter headings in the body: Normal paragraphs matching this regex
+  chapter_heading_pattern: '^CHAPTER \d+$'
+  chapter_heading_style: 'Normal'
+
+  # Sub-sections within chapters (## level in output)
+  section_heading_style: 'SecHead'
+
+  # Case study label lines (immediately before the case study title)
+  case_study_label_pattern: '^CLIFF NOTE CASE STUDY \d+$'
+  case_study_heading_style: 'Heading 1'
+
+  # Appendix section headings (extracted but not converted to slides)
+  appendix_heading_style: 'Heading 2'
+
+# ─── Pipeline settings ────────────────────────────────────────────────────────
+pipeline:
+  # How many chapter workers to run in parallel per batch
+  parallel_chapter_batch_size: 8
+
+  # QA threshold: output must be at least this fraction of source word count
+  min_output_ratio: 0.6
+
+  # Fail QA if any case study from the manifest is missing from output
+  preserve_all_case_studies: true

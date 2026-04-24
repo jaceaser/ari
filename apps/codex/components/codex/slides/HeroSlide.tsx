@@ -43,6 +43,9 @@ export function HeroSlide({ course, onStart, onOpenToc }: HeroSlideProps) {
   const caseCount = course.caseStudies.length;
   const pathwayCount = course.pathways.length;
 
+  const quote = course.config.frontPageQuote;
+  const attribution = course.config.frontPageQuoteAttribution;
+
   const parts: PartConfig[] = [
     {
       part: 'I',
@@ -81,7 +84,7 @@ export function HeroSlide({ course, onStart, onOpenToc }: HeroSlideProps) {
 
   return (
     <div
-      className="relative flex h-full w-full flex-col overflow-hidden bg-[#080808]"
+      className="relative flex h-full w-full flex-col overflow-y-auto overflow-x-hidden bg-[#080808]"
       style={{
         backgroundImage:
           'radial-gradient(ellipse 80% 55% at 50% 0%, rgba(247,195,93,0.10), transparent)',
@@ -96,7 +99,7 @@ export function HeroSlide({ course, onStart, onOpenToc }: HeroSlideProps) {
       <div className="pointer-events-none absolute bottom-0 left-0 right-0 h-32 bg-gradient-to-t from-[#080808] to-transparent" />
 
       <motion.div
-        className="relative z-10 flex flex-1 flex-col items-center justify-center px-6 py-8 text-center"
+        className="relative z-10 flex flex-1 flex-col items-center justify-center px-6 py-10 text-center"
         variants={container}
         initial="hidden"
         animate="visible"
@@ -124,7 +127,7 @@ export function HeroSlide({ course, onStart, onOpenToc }: HeroSlideProps) {
           variants={item}
           className="mb-4 text-[52px] font-black leading-[0.88] tracking-tight sm:text-[68px] lg:text-[84px]"
           style={{
-            background:
+            backgroundImage:
               'linear-gradient(135deg, hsl(41,92%,82%), hsl(41,92%,63%), hsl(38,85%,48%))',
             WebkitBackgroundClip: 'text',
             WebkitTextFillColor: 'transparent',
@@ -137,15 +140,45 @@ export function HeroSlide({ course, onStart, onOpenToc }: HeroSlideProps) {
         {/* Description */}
         <motion.p
           variants={item}
-          className="mb-8 max-w-lg text-sm text-white/50 leading-relaxed sm:text-base"
+          className="mb-7 max-w-lg text-sm text-white/50 leading-relaxed sm:text-base"
         >
           {course.config.description}
         </motion.p>
 
+        {/* Front-page quote — rendered only when the config has it */}
+        {quote && (
+          <motion.blockquote
+            variants={item}
+            className="mb-8 max-w-xl rounded-2xl px-7 py-5 text-left"
+            style={{
+              background: 'rgba(247,195,93,0.05)',
+              borderTop: '1px solid rgba(247,195,93,0.18)',
+              borderRight: '1px solid rgba(247,195,93,0.18)',
+              borderBottom: '1px solid rgba(247,195,93,0.18)',
+              borderLeft: '3px solid hsl(41 92% 67% / 0.6)',
+            }}
+          >
+            <p
+              className="whitespace-pre-line text-base font-medium italic leading-relaxed sm:text-lg"
+              style={{ color: 'rgba(255,255,255,0.75)' }}
+            >
+              {quote.trim()}
+            </p>
+            {attribution && (
+              <footer
+                className="mt-3 text-sm font-semibold tracking-wide"
+                style={{ color: 'hsl(41 92% 67% / 0.7)' }}
+              >
+                {attribution}
+              </footer>
+            )}
+          </motion.blockquote>
+        )}
+
         {/* Curriculum parts */}
         <motion.div
           variants={item}
-          className="mb-8 flex flex-wrap justify-center gap-2.5"
+          className="mb-9 flex flex-wrap justify-center gap-2.5"
         >
           {parts.map((p) => (
             <div
@@ -171,7 +204,7 @@ export function HeroSlide({ course, onStart, onOpenToc }: HeroSlideProps) {
           ))}
         </motion.div>
 
-        {/* CTA buttons */}
+        {/* CTA buttons — primary is large and unmissable */}
         <motion.div
           variants={item}
           className="flex flex-col items-center gap-3 sm:flex-row"
@@ -179,25 +212,28 @@ export function HeroSlide({ course, onStart, onOpenToc }: HeroSlideProps) {
           <button
             type="button"
             onClick={onStart}
-            className="group relative overflow-hidden rounded-xl px-10 py-4 text-sm font-bold tracking-wider uppercase transition-all duration-300"
+            className="group relative overflow-hidden rounded-xl px-10 py-4 font-bold tracking-wider uppercase transition-all duration-300"
             style={{
+              fontSize: '1.5rem',
               background: 'linear-gradient(135deg, hsl(41 92% 67%), hsl(38 85% 55%))',
               color: '#0a0a0a',
-              boxShadow: '0 0 40px rgba(247,195,93,0.22)',
+              boxShadow: '0 0 48px rgba(247,195,93,0.28), 0 4px 24px rgba(247,195,93,0.18)',
             }}
             onMouseEnter={(e) => {
-              e.currentTarget.style.boxShadow = '0 0 60px rgba(247,195,93,0.40)';
-              e.currentTarget.style.transform = 'scale(1.03)';
+              e.currentTarget.style.boxShadow =
+                '0 0 72px rgba(247,195,93,0.45), 0 6px 32px rgba(247,195,93,0.28)';
+              e.currentTarget.style.transform = 'scale(1.04)';
             }}
             onMouseLeave={(e) => {
-              e.currentTarget.style.boxShadow = '0 0 40px rgba(247,195,93,0.22)';
+              e.currentTarget.style.boxShadow =
+                '0 0 48px rgba(247,195,93,0.28), 0 4px 24px rgba(247,195,93,0.18)';
               e.currentTarget.style.transform = 'none';
             }}
           >
-            <span className="flex items-center gap-2.5">
-              Begin Course
+            <span className="flex items-center gap-3">
+              Press to Begin
               <svg
-                className="h-4 w-4 transition-transform group-hover:translate-x-0.5"
+                className="h-5 w-5 transition-transform group-hover:translate-x-1"
                 fill="none"
                 viewBox="0 0 24 24"
                 stroke="currentColor"

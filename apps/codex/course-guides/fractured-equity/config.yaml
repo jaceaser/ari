@@ -1,0 +1,35 @@
+# ─── Fractured Equity — Pipeline Config ──────────────────────────────────────
+# Used by extract_manuscript.py and qa_check.py.
+# This is NOT the Next.js course config — see course.config.yaml for that.
+# ─────────────────────────────────────────────────────────────────────────────
+
+codex_slug: fractured-equity
+codex_title: "Fractured Equity Codex"
+
+manuscript_path: ./MASTER CODEX MANUSCRIPT.docx
+extracted_path: ./extracted
+course_output_path: .
+
+front_page_quote: |
+  Every chapter in this Codex is a door.
+  Every door unlocks a property most people couldn't touch.
+  Every property is a family whose problem finally got solved.
+  That's the work. That's the point. That's the craft.
+front_page_quote_attribution: '— Charles "Uncle Charles" Hernandez'
+
+branding:
+  primary_color: "#F7C35D"
+  accent_color: "#3BB298"
+
+manuscript_structure:
+  chapter_heading_pattern: '^CHAPTER \d+$'
+  chapter_heading_style: 'Normal'
+  section_heading_style: 'SecHead'
+  case_study_label_pattern: '^CLIFF NOTE CASE STUDY \d+$'
+  case_study_heading_style: 'Heading 1'
+  appendix_heading_style: 'Heading 2'
+
+pipeline:
+  parallel_chapter_batch_size: 8
+  min_output_ratio: 0.6
+  preserve_all_case_studies: true
