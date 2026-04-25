@@ -334,10 +334,17 @@ def _extract_codex_slug(session: dict) -> str:
         import stripe as _stripe
         import os as _os
         _stripe.api_key = _os.getenv("STRIPE_SECRET_KEY", "").strip()
-        line_items = _stripe.checkout.Session.list_line_items(session_id, limit=10)
+        line_items = _stripe.checkout.Session.list_line_items(
+            session_id, limit=10, expand=["data.price.product"]
+        )
         for item in line_items.get("data", []):
             price = item.get("price") or {}
+            # Check price metadata first, then product metadata
             slug = (price.get("metadata") or {}).get("codex", "").strip()
+            if not slug:
+                product = price.get("product") or {}
+                if isinstance(product, dict):
+                    slug = (product.get("metadata") or {}).get("codex", "").strip()
             if slug:
                 return slug
     except Exception:
