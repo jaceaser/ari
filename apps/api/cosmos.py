@@ -804,6 +804,27 @@ class SessionsCosmosClient:
             except Exception:
                 return None
 
+    async def delete_all_user_data(self, user_id: str) -> int:
+        """Delete every document partitioned under user_id. Returns count of deleted docs."""
+        query = "SELECT c.id FROM c WHERE c.userId = @userId"
+        params = [{"name": "@userId", "value": user_id}]
+        deleted = 0
+        async with self._client() as client:
+            container = await self._container(client)
+            items = [
+                item async for item in container.query_items(
+                    query=query, parameters=params, partition_key=user_id
+                )
+            ]
+            for item in items:
+                try:
+                    await container.delete_item(item=item["id"], partition_key=user_id)
+                    deleted += 1
+                except Exception:
+                    pass
+        logger.info("Deleted %d documents for user %s", deleted, user_id)
+        return deleted
+
     async def find_user_by_subscription_id(self, subscription_id: str) -> Optional[dict[str, Any]]:
         """Find a user document by Stripe subscription ID (cross-partition query).
 
@@ -819,6 +840,33 @@ class SessionsCosmosClient:
             ):
                 return item
             return None
+
+    async def add_user_codex(self, user_id: str, codex_slug: str) -> None:
+        """Append a purchased codex slug to the user's purchased_codexes list (deduped)."""
+        async with self._client() as client:
+            container = await self._container(client)
+            query = "SELECT * FROM c WHERE c.type = 'user' AND c.userId = @uid"
+            params = [{"name": "@uid", "value": user_id}]
+            items = []
+            async for item in container.query_items(
+                query=query, parameters=params, partition_key=user_id
+            ):
+                items.append(item)
+
+            if not items:
+                logger.warning("No user doc found for %s to add codex %s", user_id, codex_slug)
+                return
+
+            doc = items[0]
+            existing = doc.get("purchased_codexes") or []
+            if codex_slug not in existing:
+                existing.append(codex_slug)
+                doc["purchased_codexes"] = existing
+                doc["updated_at"] = datetime.now(timezone.utc).isoformat()
+                await container.upsert_item(doc)
+                logger.info("Added codex %r to user %s", codex_slug, user_id)
+            else:
+                logger.info("User %s already has codex %r — skipping", user_id, codex_slug)
 
     # ── Stripe Idempotency ──
 

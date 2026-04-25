@@ -216,6 +216,7 @@ async def _handle_checkout_completed(cosmos, session: dict) -> None:
         or ""
     ).strip().lower()
     subscription_id = session.get("subscription")
+    mode = session.get("mode")  # "subscription" | "payment"
 
     if not customer_id:
         return
@@ -231,8 +232,6 @@ async def _handle_checkout_completed(cosmos, session: dict) -> None:
 
     is_new_user = user is None
     if is_new_user:
-        # First subscription — create the ARI account now.
-        # The user will receive a magic link to log in for the first time.
         user_id = str(_uuid.uuid5(_uuid.NAMESPACE_URL, f"ari:user:{customer_email}"))
         await cosmos.ensure_user(user_id, customer_email)
         logger.info("Created new ARI account for Stripe customer %s (%s)", customer_id, customer_email)
@@ -245,11 +244,18 @@ async def _handle_checkout_completed(cosmos, session: dict) -> None:
         stripe_data["subscription_status"] = "active"
 
     await cosmos.update_user_subscription(user_id, stripe_data)
-    logger.info("Linked Stripe customer %s to user %s (new=%s)", customer_id, user_id, is_new_user)
+    logger.info("Linked Stripe customer %s to user %s (new=%s, mode=%s)", customer_id, user_id, is_new_user, mode)
+
+    # One-time purchase: check for a codex slug in metadata or line item price metadata
+    if mode == "payment":
+        codex_slug = _extract_codex_slug(session)
+        if codex_slug:
+            await cosmos.add_user_codex(user_id, codex_slug)
+        else:
+            logger.warning("payment checkout completed for user %s but no codex metadata found on session %s", user_id, session.get("id"))
 
     if is_new_user:
-        # Send magic link so the new subscriber can log in for the first time
-        from routes.magic_link import send_welcome_email, _send_magic_link_for_new_subscriber
+        from routes.magic_link import _send_magic_link_for_new_subscriber
         try:
             await _send_magic_link_for_new_subscriber(customer_email)
         except Exception:
@@ -307,6 +313,36 @@ async def _handle_invoice_payment_failed(cosmos, invoice: dict) -> None:
 
     await cosmos.update_user_subscription(user_id, stripe_data)
     logger.warning("Payment failed for user %s — subscription set to past_due", user_id)
+
+
+def _extract_codex_slug(session: dict) -> str:
+    """Return the codex slug for a one-time payment checkout session.
+
+    Checks session.metadata first (set at checkout creation), then retrieves
+    line items from Stripe and checks each price's metadata for a 'codex' key.
+    """
+    # Fast path: slug baked into the checkout session metadata
+    slug = (session.get("metadata") or {}).get("codex", "").strip()
+    if slug:
+        return slug
+
+    # Slow path: look it up on the price/product metadata via the Stripe API
+    session_id = session.get("id")
+    if not session_id:
+        return ""
+    try:
+        import stripe as _stripe
+        import os as _os
+        _stripe.api_key = _os.getenv("STRIPE_SECRET_KEY", "").strip()
+        line_items = _stripe.checkout.Session.list_line_items(session_id, limit=10)
+        for item in line_items.get("data", []):
+            price = item.get("price") or {}
+            slug = (price.get("metadata") or {}).get("codex", "").strip()
+            if slug:
+                return slug
+    except Exception:
+        logger.exception("Failed to retrieve line items for session %s", session_id)
+    return ""
 
 
 def _extract_plan(sub: dict) -> str:
