@@ -96,6 +96,68 @@ If a course doesn't have a front-page quote, the blockquote is simply not render
 
 ---
 
+## Pipeline architecture
+
+The pipeline converts a `.docx` manuscript into the markdown content that the Next.js app reads.
+It is reusable — every future codex follows the same steps.
+
+### Data flow
+
+```
+manuscript.docx
+      │
+      ▼ extract_manuscript.py
+extracted/
+├── manifest.json          ← chapter list, case study list, word counts
+├── full_outline.md        ← complete TOC (passed to every chapter worker for cross-chapter context)
+├── front_quote.md         ← opening pull quote written into course.config.yaml
+├── chapters/
+│   └── {slug}.md          ← one file per chapter (raw markdown from docx)
+└── case-studies/
+    └── {slug}.md          ← one file per case study (raw markdown from docx)
+      │
+      ▼ chapter workers (prompt 02_chapter_worker.md, parallel batches of 8)
+      │
+      ├── topics/{slug}.md          ← one per chapter
+      └── case-studies/{slug}.md   ← one per case study
+      │
+      ▼ qa_check.py
+qa_report.md               ← PASS / FAIL / MISSING per output file
+```
+
+### Pipeline files
+
+| File | Purpose |
+|------|---------|
+| `scripts/extract_manuscript.py` | Parses docx by heading style → emits `extracted/` |
+| `scripts/qa_check.py` | Validates output word counts and case study coverage |
+| `prompts/00_orchestrator.md` | Coordinates all phases; the entry point |
+| `prompts/01_extract.md` | Runs extraction, presents manifest for approval |
+| `prompts/02_chapter_worker.md` | Single-chapter subagent (parallelized) |
+| `prompts/03_landing_page.md` | Writes `course.config.yaml` front quote + `overview.md` |
+| `prompts/04_qa.md` | Runs `qa_check.py`, re-runs workers on failures |
+| `templates/topic_template.md` | Frontmatter + body structure for topic files |
+| `templates/case_study_template.md` | Frontmatter + body structure for case-study files |
+| `config.example.yaml` | Copy this to the course dir as `config.yaml` |
+
+### Manuscript heading conventions (Fractured Equity)
+
+The extractor identifies structure by Word paragraph style, not markdown heading level:
+
+| Content | Detection rule |
+|---------|---------------|
+| Chapter headings | `Normal` style paragraphs matching `^CHAPTER \d+$` |
+| Chapter sub-sections | `SecHead` style paragraphs |
+| Case study labels | `Heading 1` matching `^CLIFF NOTE CASE STUDY \d+$` |
+| Case study titles | `Heading 1` immediately after the label |
+| Appendix sections | `Heading 2` |
+| Front page quote | Normal paragraph containing `"Every chapter in this Codex is a door"` |
+
+If a future manuscript uses different heading styles, adjust `CHAPTER_HEADING_RE`,
+`CS_LABEL_RE`, and `QUOTE_START` at the top of `extract_manuscript.py`.
+
+---
+
 ## Content pipeline
 
 To rebuild a course from its manuscript:
@@ -109,7 +171,55 @@ python3 ../../pipeline/scripts/extract_manuscript.py --config config.yaml
 python3 ../../pipeline/scripts/qa_check.py --config config.yaml
 ```
 
-See `pipeline/README.md` for the full workflow.
+### Invoking the orchestrator
+
+Paste the following into a Claude conversation, filling in the config path:
+
+```
+Run the codex pipeline orchestrator at apps/codex/pipeline/prompts/00_orchestrator.md
+Config: apps/codex/course-guides/{slug}/config.yaml
+```
+
+The orchestrator runs six phases in order:
+1. **Extract** — parses docx, writes `extracted/`, presents manifest for your approval
+2. **Backup** — `cp -r topics topics.bak`, same for case-studies, pathways, etc.
+3. **Landing page** — writes front quote into `course.config.yaml`, updates `overview.md`
+4. **Chapter workers** — 42 subagents in parallel batches of 8, one per chapter
+5. **Case study workers** — 100 subagents in parallel batches of 8, one per case study
+6. **QA** — runs `qa_check.py`, re-runs failing workers up to 3 times each
+
+The orchestrator stops after step 1 and waits for your approval before writing any output files.
+
+### `config.yaml` schema
+
+```yaml
+codex_slug: your-course-slug          # must match the directory name
+codex_title: "Your Course Title"
+manuscript_path: ./MANUSCRIPT.docx    # relative to this file
+extracted_path: ./extracted
+course_output_path: .                 # where topics/, case-studies/, etc. live
+
+front_page_quote: |                   # opening pull quote → course.config.yaml
+  Quote text here.
+front_page_quote_attribution: '— Author Name'
+
+branding:
+  primary_color: "#F7C35D"
+  accent_color: "#3BB298"
+
+manuscript_structure:
+  chapter_heading_pattern: '^CHAPTER \d+$'
+  chapter_heading_style: 'Normal'
+  section_heading_style: 'SecHead'
+  case_study_label_pattern: '^CLIFF NOTE CASE STUDY \d+$'
+  case_study_heading_style: 'Heading 1'
+  appendix_heading_style: 'Heading 2'
+
+pipeline:
+  parallel_chapter_batch_size: 8
+  min_output_ratio: 0.6
+  preserve_all_case_studies: true
+```
 
 ### Adding a new codex
 
@@ -117,8 +227,11 @@ See `pipeline/README.md` for the full workflow.
 2. Drop the manuscript `.docx` in that directory
 3. Copy `pipeline/config.example.yaml` → `course-guides/{new-slug}/config.yaml` and fill in
 4. Copy `course-guides/fractured-equity/course.config.yaml` as a template and update
-5. Invoke `pipeline/prompts/00_orchestrator.md` with the config path
-6. Deploy: `az acr build -r ariprodacr -t ari-codex:latest .`
+5. Invoke `pipeline/prompts/00_orchestrator.md` with the config path (see above)
+6. Review `qa_report.md`, address any flagged items
+7. Deploy: `az acr build -r ariprodacr -t ari-codex:latest .`
+
+Content is read from the filesystem at runtime — every new codex requires a redeploy.
 
 ---
 
@@ -137,9 +250,21 @@ See `pipeline/README.md` for the full workflow.
 
 ## QA rule
 
-Any topic output file must contain ≥ 60% of the word count of its source chapter.
-Any case-study output file must contain ≥ 60% of the word count of its source cliff note.
-This rule prevents the most common failure mode: AI workers summarizing instead of transcribing.
+**Any topic output file must contain ≥ 60% of the word count of its source chapter.**  
+**Any case-study output file must contain ≥ 60% of the word count of its source cliff note.**
+
+This threshold exists because the primary failure mode of AI-generated course content is
+over-condensation: a 2,000-word chapter gets reduced to a 300-word summary that strips out
+case studies, numbered steps, and technical execution detail — exactly the content that makes
+the course useful. A word-count floor is the simplest check that catches this.
+
+If `qa_check.py` flags a file as FAIL, re-run its worker with an explicit instruction to
+expand. "More pages is fine; brevity is not the goal."
+
+`qa_report.md` is written to the course directory after each QA run. Three status values:
+- `PASS` — output word count ≥ 60% of source
+- `FAIL` — output word count < 60% of source (re-run the worker)
+- `MISSING` — no output file found for this manifest entry (worker never ran or crashed)
 
 ---
 

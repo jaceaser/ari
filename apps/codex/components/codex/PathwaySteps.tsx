@@ -1,13 +1,15 @@
 import Link from 'next/link';
 import { AlertTriangle, GitBranch, CheckCircle2 } from 'lucide-react';
 import type { Pathway } from '@/types/codex';
+import type { Locale } from '@/lib/translations';
 
 interface PathwayStepsProps {
   pathway: Pathway;
   courseSlug: string;
+  locale?: Locale;
 }
 
-export function PathwaySteps({ pathway, courseSlug }: PathwayStepsProps) {
+export function PathwaySteps({ pathway, courseSlug, locale = 'en' }: PathwayStepsProps) {
   const steps = [...pathway.steps].sort((a, b) => a.order - b.order);
 
   return (
@@ -38,7 +40,7 @@ export function PathwaySteps({ pathway, courseSlug }: PathwayStepsProps) {
                 <h3 className="font-semibold text-[var(--foreground)]">{step.label}</h3>
                 {step.topicSlug && (
                   <Link
-                    href={`/${courseSlug}/topic/${step.topicSlug}`}
+                    href={`/${locale}/${courseSlug}/topic/${step.topicSlug}`}
                     className="inline-flex items-center gap-1 rounded-full bg-[var(--muted)] px-2.5 py-0.5 text-xs text-[var(--muted-foreground)] transition-colors hover:bg-[var(--secondary)]"
                   >
                     <CheckCircle2 className="h-3 w-3" />

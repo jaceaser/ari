@@ -2,17 +2,20 @@
 
 import Link from 'next/link';
 import type { CourseSummary } from '@/lib/list-courses';
+import type { Locale } from '@/lib/translations';
+import { useTranslations } from '@/lib/locale-context';
 
-export function CourseCard({ course }: { course: CourseSummary }) {
+export function CourseCard({ course, locale = 'en' }: { course: CourseSummary; locale?: Locale }) {
+  const t = useTranslations();
   const stats = [
-    { label: 'Strategies', value: course.topicCount },
-    { label: 'Case Studies', value: course.caseStudyCount },
-    { label: 'Pathways', value: course.pathwayCount },
+    { label: t.strategies(course.topicCount), value: course.topicCount },
+    { label: t.caseStudiesCount(course.caseStudyCount), value: course.caseStudyCount },
+    { label: t.pathwaysCount(course.pathwayCount), value: course.pathwayCount },
   ].filter((s) => s.value > 0);
 
   return (
     <Link
-      href={`/${course.slug}`}
+      href={`/${locale}/${course.slug}`}
       className="group relative flex flex-col overflow-hidden rounded-2xl transition-all duration-300"
       style={{
         background: 'rgba(255,255,255,0.03)',
@@ -47,7 +50,7 @@ export function CourseCard({ course }: { course: CourseSummary }) {
           className="mb-3 text-[10px] font-black tracking-[0.3em] uppercase"
           style={{ color: 'hsl(41 92% 67%)' }}
         >
-          Interactive Course
+          {t.interactiveCourse}
         </p>
 
         <h2
@@ -78,7 +81,7 @@ export function CourseCard({ course }: { course: CourseSummary }) {
                 border: '1px solid rgba(247,195,93,0.18)',
               }}
             >
-              {s.value} {s.label}
+              {s.label}
             </span>
           ))}
         </div>
@@ -87,7 +90,7 @@ export function CourseCard({ course }: { course: CourseSummary }) {
           className="flex items-center gap-2 text-sm font-semibold"
           style={{ color: 'hsl(41 92% 67%)' }}
         >
-          <span>Start Course</span>
+          <span>{t.startCourse}</span>
           <svg
             className="h-4 w-4 transition-transform duration-200 group-hover:translate-x-1"
             fill="none"

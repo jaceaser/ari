@@ -2,6 +2,7 @@
 
 import { motion } from 'framer-motion';
 import type { SerializedCourse } from '@/types/codex';
+import { useTranslations } from '@/lib/locale-context';
 
 const noiseUrl =
   "data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E";
@@ -39,6 +40,7 @@ interface HeroSlideProps {
 }
 
 export function HeroSlide({ course, onStart, onOpenToc }: HeroSlideProps) {
+  const t = useTranslations();
   const topicCount = course.topics.length;
   const caseCount = course.caseStudies.length;
   const pathwayCount = course.pathways.length;
@@ -49,9 +51,9 @@ export function HeroSlide({ course, onStart, onOpenToc }: HeroSlideProps) {
   const parts: PartConfig[] = [
     {
       part: 'I',
-      label: 'The Strategy',
+      label: t.theStrategy,
       count: topicCount,
-      unit: topicCount === 1 ? 'lesson' : 'lessons',
+      unit: topicCount === 1 ? t.lessonSingular : t.lessonPlural,
       border: 'rgba(247,195,93,0.2)',
       bg: 'rgba(247,195,93,0.07)',
       partLabelColor: 'rgba(247,195,93,0.55)',
@@ -60,9 +62,9 @@ export function HeroSlide({ course, onStart, onOpenToc }: HeroSlideProps) {
     },
     {
       part: 'II',
-      label: 'Case Studies',
+      label: t.caseStudies,
       count: caseCount,
-      unit: caseCount === 1 ? 'deal' : 'deals',
+      unit: caseCount === 1 ? t.dealSingular : t.dealPlural,
       border: 'rgba(59,178,152,0.2)',
       bg: 'rgba(59,178,152,0.07)',
       partLabelColor: 'rgba(59,178,152,0.55)',
@@ -71,9 +73,9 @@ export function HeroSlide({ course, onStart, onOpenToc }: HeroSlideProps) {
     },
     {
       part: 'III',
-      label: 'Pathways',
+      label: t.pathways,
       count: pathwayCount,
-      unit: pathwayCount === 1 ? 'route' : 'routes',
+      unit: pathwayCount === 1 ? t.routeSingular : t.routePlural,
       border: 'rgba(147,112,200,0.2)',
       bg: 'rgba(147,112,200,0.07)',
       partLabelColor: 'rgba(147,112,200,0.55)',
@@ -118,7 +120,7 @@ export function HeroSlide({ course, onStart, onOpenToc }: HeroSlideProps) {
               className="h-1.5 w-1.5 rounded-full animate-pulse"
               style={{ backgroundColor: 'hsl(41 92% 67%)', boxShadow: '0 0 6px hsl(41 92% 67%)' }}
             />
-            ARI Codex · Interactive Course
+            {t.interactiveGuide}
           </span>
         </motion.div>
 
@@ -231,7 +233,7 @@ export function HeroSlide({ course, onStart, onOpenToc }: HeroSlideProps) {
             }}
           >
             <span className="flex items-center gap-3">
-              Press to Begin
+              {t.press} {t.toBegin}
               <svg
                 className="h-5 w-5 transition-transform group-hover:translate-x-1"
                 fill="none"
@@ -277,7 +279,7 @@ export function HeroSlide({ course, onStart, onOpenToc }: HeroSlideProps) {
               <rect x="3" y="14" width="7" height="7" rx="1" />
               <rect x="14" y="14" width="7" height="7" rx="1" />
             </svg>
-            Browse Curriculum
+            {t.browseCurriculum}
           </button>
         </motion.div>
 
@@ -316,7 +318,7 @@ export function HeroSlide({ course, onStart, onOpenToc }: HeroSlideProps) {
           variants={item}
           className="mt-4 text-[11px] font-medium tracking-[0.2em] uppercase text-white/18"
         >
-          Powered by REI Labs
+          {t.poweredBy}
         </motion.p>
       </motion.div>
     </div>

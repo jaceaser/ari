@@ -3,6 +3,7 @@
 import { motion, AnimatePresence } from 'framer-motion';
 import type { Slide } from '@/lib/slide-builder';
 import type { SerializedCourse } from '@/types/codex';
+import { useTranslations } from '@/lib/locale-context';
 
 const TYPE_COLORS: Record<string, string> = {
   hero: 'hsl(41 92% 67%)',
@@ -13,20 +14,9 @@ const TYPE_COLORS: Record<string, string> = {
   map: 'hsl(210 60% 60%)',
 };
 
-const TYPE_LABELS: Record<string, string> = {
-  hero: 'INTRO',
-  'chapter-intro': 'CHAPTER',
-  topic: 'TOPIC',
-  'case-study': 'CASE STUDY',
-  pathway: 'PATHWAY',
-  map: 'MAP',
-};
+// TYPE_LABELS is now derived from translations inside the component
 
-const DIFFICULTY_CONFIG = {
-  beginner: { label: 'Beginner', color: '#4ade80' },
-  intermediate: { label: 'Intermediate', color: '#fbbf24' },
-  advanced: { label: 'Advanced', color: '#f87171' },
-};
+// Difficulty labels are now derived from translations inside the component
 
 function groupByChapter(slides: Slide[]) {
   const groups: { chapterIndex: number; chapterTitle: string; slides: { slide: Slide; index: number }[] }[] = [];
@@ -48,13 +38,6 @@ function groupByChapter(slides: Slide[]) {
   return groups;
 }
 
-const PART_LABELS: Record<number, string> = {
-  0: 'INTRODUCTION',
-  1: 'PART I — THE STRATEGY',
-  2: 'PART II — CASE STUDIES',
-  3: 'PART III — PATHWAYS',
-  4: 'KNOWLEDGE MAP',
-};
 
 interface TableOfContentsProps {
   open: boolean;
@@ -75,6 +58,27 @@ export function TableOfContents({
   course,
   onNavigate,
 }: TableOfContentsProps) {
+  const t = useTranslations();
+  const PART_LABELS: Record<number, string> = {
+    0: t.introduction,
+    1: t.partIStrategy,
+    2: t.partIICaseStudies,
+    3: t.partIIIPathways,
+    4: t.knowledgeMap,
+  };
+  const DIFFICULTY_CONFIG = {
+    beginner: { label: t.beginner, color: '#4ade80' },
+    intermediate: { label: t.intermediate, color: '#fbbf24' },
+    advanced: { label: t.advanced, color: '#f87171' },
+  };
+  const TYPE_LABELS: Record<string, string> = {
+    hero: t.intro,
+    'chapter-intro': t.chapter,
+    topic: t.topicBadge,
+    'case-study': t.caseStudy.toUpperCase(),
+    pathway: t.pathway.toUpperCase(),
+    map: t.mapBadge,
+  };
   const groups = groupByChapter(slides);
   const visitedCount = visitedSlides.size;
   const progress = Math.round((visitedCount / slides.length) * 100);

@@ -1,6 +1,7 @@
 'use client';
 
 import { motion } from 'framer-motion';
+import { useTranslations } from '@/lib/locale-context';
 
 const noiseUrl =
   "data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E";
@@ -34,6 +35,7 @@ export function ChapterIntroSlide({
   slideCount,
   items,
 }: ChapterIntroSlideProps) {
+  const t = useTranslations();
   const displayItems = items?.slice(0, 8) ?? [];
   const overflow = (items?.length ?? 0) - displayItems.length;
 
@@ -101,7 +103,7 @@ export function ChapterIntroSlide({
               className="mb-3 text-[10px] font-black tracking-[0.25em] uppercase"
               style={{ color: 'rgba(255,255,255,0.25)' }}
             >
-              In this chapter
+              {t.inThisChapter}
             </p>
             <div className="flex flex-col gap-1.5">
               {displayItems.map((label, i) => (
@@ -152,12 +154,12 @@ export function ChapterIntroSlide({
               style={{ backgroundColor: 'hsl(41 92% 67%)' }}
             />
             <span className="text-white/50">
-              {slideCount} {slideCount === 1 ? 'slide' : 'slides'}
+              {slideCount} {slideCount === 1 ? t.slide : t.slides}
             </span>
           </div>
 
           <div className="flex items-center gap-1.5 text-[11px]" style={{ color: 'rgba(255,255,255,0.22)' }}>
-            <span>Press</span>
+            <span>{t.press}</span>
             <kbd
               className="rounded px-1.5 py-0.5 font-semibold"
               style={{
@@ -169,7 +171,7 @@ export function ChapterIntroSlide({
             >
               →
             </kbd>
-            <span>to begin</span>
+            <span>{t.toBegin}</span>
           </div>
         </motion.div>
       </motion.div>

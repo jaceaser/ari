@@ -1,0 +1,24 @@
+slug: fractured-equity
+title: Códice de Equidad Fracturada
+description: El manual de campo completo para adquirir bienes inmuebles que nadie más puede tocar. Participaciones parciales, saneamiento hereditario, partición, ejecución fiscal, saneamiento de título.
+productSlug: fractured-equity
+version: "1.0"
+frontPageQuote: |
+  Cada capítulo de este Códice es una puerta.
+  Cada puerta abre una propiedad que la mayoría de las personas no podría tocar.
+  Cada propiedad es una familia cuyo problema finalmente fue resuelto.
+  Eso es el trabajo. Ese es el objetivo. Ese es el oficio.
+frontPageQuoteAttribution: '— Charles "Uncle Charles" Hernandez'
+featured:
+  topics:
+    - chapter-01-the-strategy-in-one-sentence
+    - chapter-13-the-fact-pattern-matrix-diagnosing-any-deal-in-twenty-minutes
+    - chapter-25-partition-actions-forcing-the-sale-of-jointly-owned-property
+  caseStudies:
+    - cliff-note-001-the-only-child
+    - cliff-note-030-the-mortgage-foreclosure-race
+    - cliff-note-100-the-build-your-own-equity-deal
+  pathways:
+    - co-owner-wont-sell
+    - inherited-property-missing-heirs
+    - title-cleanup-before-sale

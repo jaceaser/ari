@@ -5,18 +5,9 @@ import { KnowledgeMap } from '@/components/codex/KnowledgeMap';
 import { buildGraph } from '@/lib/graph-builder';
 import type { SerializedCourse } from '@/types/codex';
 import type { EntityType } from '@/types/codex';
+import { useTranslations } from '@/lib/locale-context';
 
 const allTypes: EntityType[] = ['topic', 'case-study', 'pathway', 'glossary', 'operator-card'];
-
-const typeLabels: Record<EntityType, string> = {
-  topic: 'Topics',
-  'case-study': 'Case Studies',
-  pathway: 'Pathways',
-  glossary: 'Glossary',
-  'operator-card': 'Operator',
-  document: 'Documents',
-  'state-note': 'State Notes',
-};
 
 const typeColors: Partial<Record<EntityType, string>> = {
   topic: 'rgb(247, 195, 93)',
@@ -32,7 +23,18 @@ interface MapSlideProps {
 }
 
 export function MapSlide({ course, courseSlug }: MapSlideProps) {
+  const t = useTranslations();
   const [activeTypes, setActiveTypes] = useState<EntityType[]>([]);
+
+  const typeLabels: Partial<Record<EntityType, string>> = {
+    topic: t.mapTypeTopics,
+    'case-study': t.mapTypeCaseStudies,
+    pathway: t.mapTypePathways,
+    glossary: t.mapTypeGlossary,
+    'operator-card': t.mapTypeOperator,
+    document: t.mapTypeDocuments,
+    'state-note': t.mapTypeStateNotes,
+  };
 
   // Convert SerializedCourse to a Course-like object for buildGraph
   const courseForGraph = useMemo(
@@ -44,6 +46,7 @@ export function MapSlide({ course, courseSlug }: MapSlideProps) {
       pathways: new Map(course.pathways.map((p) => [p.slug, p])),
       operatorCards: new Map(course.operatorCards.map((o) => [o.slug, o])),
       glossary: new Map(course.glossary.map((g) => [g.slug, g])),
+      appendix: new Map(course.appendix.map((a) => [a.slug, a])),
       allEntities: new Map(Object.entries(course.allEntities)),
     }),
     [course]
@@ -72,7 +75,7 @@ export function MapSlide({ course, courseSlug }: MapSlideProps) {
           className="text-[10px] font-bold tracking-[0.2em] uppercase"
           style={{ color: 'hsl(41 92% 67%)' }}
         >
-          Filter:
+          {t.filterLabel}
         </span>
         {allTypes.map((type) => {
           const active = activeTypes.includes(type);
@@ -93,7 +96,7 @@ export function MapSlide({ course, courseSlug }: MapSlideProps) {
                 className="h-2 w-2 rounded-full"
                 style={{ backgroundColor: color ?? '#666', opacity: active ? 1 : 0.4 }}
               />
-              {typeLabels[type]}
+              {typeLabels[type] ?? type}
             </button>
           );
         })}
@@ -106,17 +109,17 @@ export function MapSlide({ course, courseSlug }: MapSlideProps) {
             onMouseEnter={(e) => (e.currentTarget.style.color = '#999')}
             onMouseLeave={(e) => (e.currentTarget.style.color = '#555')}
           >
-            Clear
+            {t.clearFilter}
           </button>
         )}
 
         {/* Title */}
         <div className="ml-auto flex items-center gap-2">
           <span className="text-[10px] font-bold tracking-[0.2em] uppercase text-white/20">
-            Knowledge Map
+            {t.knowledgeMap}
           </span>
           <span className="text-xs text-white/20">·</span>
-          <span className="text-xs text-white/20">Click any node to explore</span>
+          <span className="text-xs text-white/20">{t.clickToExplore}</span>
         </div>
       </div>
 

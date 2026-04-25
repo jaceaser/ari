@@ -1,6 +1,8 @@
 import type { SerializedCourse } from '@/types/codex';
+import type { Translations } from './translations';
+import { translations } from './translations';
 
-export type SlideType = 'hero' | 'chapter-intro' | 'topic' | 'case-study' | 'pathway' | 'glossary' | 'map';
+export type SlideType = 'hero' | 'chapter-intro' | 'topic' | 'case-study' | 'pathway' | 'glossary' | 'map' | 'appendix';
 
 export interface Slide {
   id: string;
@@ -12,7 +14,7 @@ export interface Slide {
   data: any;
 }
 
-export function buildSlides(course: SerializedCourse): Slide[] {
+export function buildSlides(course: SerializedCourse, t: Translations = translations.en): Slide[] {
   const slides: Slide[] = [];
 
   // 1. Hero
@@ -20,8 +22,8 @@ export function buildSlides(course: SerializedCourse): Slide[] {
     id: 'hero',
     type: 'hero',
     chapterIndex: 0,
-    chapterTitle: 'Introduction',
-    shortTitle: 'Welcome',
+    chapterTitle: t.introduction,
+    shortTitle: t.welcome,
     data: { course },
   });
 
@@ -32,15 +34,14 @@ export function buildSlides(course: SerializedCourse): Slide[] {
     id: 'chapter-strategy',
     type: 'chapter-intro',
     chapterIndex: 1,
-    chapterTitle: 'The Strategy',
-    shortTitle: 'Part I',
+    chapterTitle: t.theStrategy,
+    shortTitle: t.partI,
     data: {
-      partNumber: 'PART I',
-      title: 'THE STRATEGY',
-      description:
-        'What fractured equity is, why the opportunity exists, and how the acquisition model works.',
+      partNumber: t.partI,
+      title: t.theStrategy,
+      description: t.strategyDescription,
       slideCount: sortedTopics.length,
-      items: sortedTopics.map((t) => t.title),
+      items: sortedTopics.map((tp) => tp.title),
     },
   });
 
@@ -49,7 +50,7 @@ export function buildSlides(course: SerializedCourse): Slide[] {
       id: `topic-${topic.slug}`,
       type: 'topic',
       chapterIndex: 1,
-      chapterTitle: 'The Strategy',
+      chapterTitle: t.theStrategy,
       shortTitle: topic.title,
       data: {
         topic,
@@ -65,12 +66,12 @@ export function buildSlides(course: SerializedCourse): Slide[] {
       id: 'chapter-casestudies',
       type: 'chapter-intro',
       chapterIndex: 2,
-      chapterTitle: 'Case Studies',
-      shortTitle: 'Part II',
+      chapterTitle: t.caseStudies,
+      shortTitle: t.partII,
       data: {
-        partNumber: 'PART II',
-        title: 'CASE STUDIES',
-        description: 'Real deals. Real numbers. See how the strategy plays out in practice.',
+        partNumber: t.partII,
+        title: t.caseStudies,
+        description: t.caseStudiesDescription,
         slideCount: course.caseStudies.length,
         items: course.caseStudies.map((cs) => cs.title),
       },
@@ -81,7 +82,7 @@ export function buildSlides(course: SerializedCourse): Slide[] {
         id: `cs-${cs.slug}`,
         type: 'case-study',
         chapterIndex: 2,
-        chapterTitle: 'Case Studies',
+        chapterTitle: t.caseStudies,
         shortTitle: cs.title,
         data: { caseStudy: cs },
       });
@@ -94,12 +95,12 @@ export function buildSlides(course: SerializedCourse): Slide[] {
       id: 'chapter-pathways',
       type: 'chapter-intro',
       chapterIndex: 3,
-      chapterTitle: 'Pathways',
-      shortTitle: 'Part III',
+      chapterTitle: t.pathways,
+      shortTitle: t.partIII,
       data: {
-        partNumber: 'PART III',
-        title: 'PATHWAYS',
-        description: 'Guided routes through the most common operator scenarios.',
+        partNumber: t.partIII,
+        title: t.pathways,
+        description: t.pathwaysDescription,
         slideCount: course.pathways.length,
         items: course.pathways.map((pw) => pw.title),
       },
@@ -110,7 +111,7 @@ export function buildSlides(course: SerializedCourse): Slide[] {
         id: `pathway-${pw.slug}`,
         type: 'pathway',
         chapterIndex: 3,
-        chapterTitle: 'Pathways',
+        chapterTitle: t.pathways,
         shortTitle: pw.title,
         data: { pathway: pw },
       });
@@ -123,19 +124,31 @@ export function buildSlides(course: SerializedCourse): Slide[] {
       id: 'glossary',
       type: 'glossary',
       chapterIndex: 4,
-      chapterTitle: 'Glossary',
-      shortTitle: 'Glossary',
+      chapterTitle: t.glossary,
+      shortTitle: t.glossary,
       data: { terms: course.glossary },
     });
   }
 
-  // 6. Knowledge Map
+  // 6. Appendix
+  if (course.appendix.length > 0) {
+    slides.push({
+      id: 'appendix',
+      type: 'appendix',
+      chapterIndex: 5,
+      chapterTitle: t.appendix,
+      shortTitle: t.appendix,
+      data: { sectionCount: course.appendix.length },
+    });
+  }
+
+  // 7. Knowledge Map
   slides.push({
     id: 'map',
     type: 'map',
-    chapterIndex: 5,
-    chapterTitle: 'Knowledge Map',
-    shortTitle: 'Knowledge Map',
+    chapterIndex: 6,
+    chapterTitle: t.knowledgeMap,
+    shortTitle: t.knowledgeMap,
     data: {},
   });
 

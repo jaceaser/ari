@@ -3,6 +3,7 @@
 import { motion } from 'framer-motion';
 import type { GlossaryTerm } from '@/types/codex';
 import { CodexLink } from '../CodexLink';
+import { useTranslations } from '@/lib/locale-context';
 
 const noiseUrl =
   "data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E";
@@ -26,6 +27,7 @@ interface GlossarySlideProps {
 }
 
 export function GlossarySlide({ terms }: GlossarySlideProps) {
+  const t = useTranslations();
   const sorted = [...terms].sort((a, b) => a.title.localeCompare(b.title));
 
   // Group by first letter
@@ -65,7 +67,7 @@ export function GlossarySlide({ terms }: GlossarySlideProps) {
             className="text-xs font-bold tracking-[0.3em] uppercase"
             style={{ color: 'hsl(220 70% 65%)' }}
           >
-            Reference
+            {t.referenceLabel}
           </span>
         </motion.div>
 
@@ -74,7 +76,7 @@ export function GlossarySlide({ terms }: GlossarySlideProps) {
           variants={itemVariants}
           className="mb-8 text-[40px] font-black leading-tight tracking-tight text-white sm:text-[48px] lg:text-[52px]"
         >
-          GLOSSARY
+          {t.glossaryTitle}
         </motion.h1>
 
         {/* Terms grid */}

@@ -70,6 +70,13 @@ export interface GlossaryTerm extends CodexEntity {
   plainEnglish?: string;
 }
 
+export interface AppendixSection {
+  slug: string;
+  title: string;
+  category: 'intro' | 'survey' | 'state';
+  body: string;
+}
+
 export interface CourseConfig {
   slug: string;
   title: string;
@@ -93,6 +100,7 @@ export interface Course {
   pathways: Map<string, Pathway>;
   operatorCards: Map<string, OperatorCard>;
   glossary: Map<string, GlossaryTerm>;
+  appendix: Map<string, AppendixSection>;
   allEntities: Map<string, CodexEntity>;
 }
 
@@ -104,5 +112,6 @@ export interface SerializedCourse {
   pathways: Pathway[];
   operatorCards: OperatorCard[];
   glossary: GlossaryTerm[];
+  appendix: AppendixSection[];
   allEntities: Record<string, CodexEntity>;
 }

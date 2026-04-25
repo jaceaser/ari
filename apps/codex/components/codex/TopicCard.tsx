@@ -3,14 +3,16 @@ import { ArrowRight } from 'lucide-react';
 import type { CodexEntity } from '@/types/codex';
 import { EntityBadge } from './EntityBadge';
 import { cn } from '@/lib/cn';
+import type { Locale } from '@/lib/translations';
 
 interface TopicCardProps {
   entity: CodexEntity;
   courseSlug: string;
   className?: string;
+  locale?: Locale;
 }
 
-function getEntityPath(entity: CodexEntity, courseSlug: string): string {
+function getEntityPath(entity: CodexEntity, courseSlug: string, locale: Locale): string {
   const typeMap: Record<string, string> = {
     topic: 'topic',
     'case-study': 'case-study',
@@ -21,17 +23,17 @@ function getEntityPath(entity: CodexEntity, courseSlug: string): string {
     'state-note': 'state-note',
   };
   const segment = typeMap[entity.type] ?? entity.type;
-  return `/${courseSlug}/${segment}/${entity.slug}`;
+  return `/${locale}/${courseSlug}/${segment}/${entity.slug}`;
 }
 
-export function TopicCard({ entity, courseSlug, className }: TopicCardProps) {
-  const href = getEntityPath(entity, courseSlug);
+export function TopicCard({ entity, courseSlug, className, locale = 'en' }: TopicCardProps) {
+  const href = getEntityPath(entity, courseSlug, locale);
 
   return (
     <Link href={href} className={cn('group block', className)}>
       <div className="h-full rounded-xl border border-[var(--border)] bg-[var(--card)] p-5 transition-all duration-200 hover:-translate-y-0.5 hover:border-[hsl(var(--ari-gold-hsl))/0.4] hover:shadow-lg hover:shadow-black/20">
         <div className="mb-3 flex items-center justify-between">
-          <EntityBadge type={entity.type} />
+          <EntityBadge type={entity.type} locale={locale} />
           {entity.featured && (
             <span className="text-xs text-amber-400/60">Featured</span>
           )}

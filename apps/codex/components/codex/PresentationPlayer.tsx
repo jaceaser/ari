@@ -5,6 +5,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import type { SerializedCourse, CodexEntity } from '@/types/codex';
 import { buildSlides, type Slide } from '@/lib/slide-builder';
 import { buildCrossReferenceIndex } from '@/lib/cross-reference';
+import type { Locale } from '@/lib/translations';
+import { getTranslations } from '@/lib/translations';
 import { HeroSlide } from './slides/HeroSlide';
 import { ChapterIntroSlide } from './slides/ChapterIntroSlide';
 import { TopicSlide } from './slides/TopicSlide';
@@ -12,6 +14,7 @@ import { CaseStudySlide } from './slides/CaseStudySlide';
 import { PathwaySlide } from './slides/PathwaySlide';
 import { GlossarySlide } from './slides/GlossarySlide';
 import { MapSlide } from './slides/MapSlide';
+import { AppendixSlide } from './slides/AppendixSlide';
 import { BottomNav } from './BottomNav';
 import { CurriculumSidebar } from './CurriculumSidebar';
 import { TableOfContents } from './TableOfContents';
@@ -87,6 +90,8 @@ function renderSlide(
       );
     case 'glossary':
       return <GlossarySlide terms={slide.data.terms} />;
+    case 'appendix':
+      return <AppendixSlide courseSlug={courseSlug} sectionCount={slide.data.sectionCount} />;
     case 'map':
       return <MapSlide course={course} courseSlug={courseSlug} />;
     default:
@@ -97,10 +102,12 @@ function renderSlide(
 interface PresentationPlayerProps {
   course: SerializedCourse;
   courseSlug: string;
+  locale?: Locale;
 }
 
-export function PresentationPlayer({ course, courseSlug }: PresentationPlayerProps) {
-  const slides = useMemo(() => buildSlides(course), [course]);
+export function PresentationPlayer({ course, courseSlug, locale = 'en' }: PresentationPlayerProps) {
+  const t = useMemo(() => getTranslations(locale), [locale]);
+  const slides = useMemo(() => buildSlides(course, t), [course, t]);
   const crossRefIndex = useMemo(() => buildCrossReferenceIndex(course), [course]);
   const [[currentIndex, direction], setSlide] = useState<[number, number]>([0, 0]);
   const [panelOpen, setPanelOpen] = useState(false);

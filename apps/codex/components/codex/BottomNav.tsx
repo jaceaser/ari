@@ -2,6 +2,8 @@
 
 import { motion } from 'framer-motion';
 import type { Slide } from '@/lib/slide-builder';
+import { useTranslations } from '@/lib/locale-context';
+import { LanguageSwitcher } from './LanguageSwitcher';
 
 interface BottomNavProps {
   slides: Slide[];
@@ -80,6 +82,7 @@ export function BottomNav({
   explorerOpen,
   onToggleExplorer,
 }: BottomNavProps) {
+  const t = useTranslations();
   const current = slides[currentIndex];
   const prev = slides[currentIndex - 1];
   const next = slides[currentIndex + 1];
@@ -115,7 +118,7 @@ export function BottomNav({
         {/* Left: tool buttons */}
         <div className="flex shrink-0 items-center gap-0.5">
           <NavIconBtn
-            label="Lessons"
+            label={t.navLessons}
             title="Lesson List (Esc)"
             active={false}
             onClick={onToggleSidebar}
@@ -126,7 +129,7 @@ export function BottomNav({
             }
           />
           <NavIconBtn
-            label="Map"
+            label={t.navMap}
             title="Course Map (T)"
             active={tocOpen}
             onClick={onToggleToc}
@@ -140,7 +143,7 @@ export function BottomNav({
             }
           />
           <NavIconBtn
-            label="Reference"
+            label={t.navReference}
             title="Content Reference (E)"
             active={explorerOpen}
             onClick={onToggleExplorer}
@@ -153,7 +156,7 @@ export function BottomNav({
           />
           {canGoBack && (
             <NavIconBtn
-              label="Back"
+              label={t.navBack}
               title="Go Back (B)"
               onClick={onBack}
               icon={
@@ -164,6 +167,9 @@ export function BottomNav({
               }
             />
           )}
+          <div className="ml-1 hidden sm:block">
+            <LanguageSwitcher />
+          </div>
         </div>
 
         {/* Divider */}
@@ -197,7 +203,7 @@ export function BottomNav({
                   className="text-[9px] font-bold tracking-[0.15em] uppercase"
                   style={{ color: 'rgba(255,255,255,0.22)' }}
                 >
-                  Previous
+                  {t.navPrevious}
                 </span>
                 <span className="truncate text-[12px] font-medium leading-tight">
                   {prev.shortTitle}
@@ -243,7 +249,7 @@ export function BottomNav({
                   className="text-[9px] font-bold tracking-[0.15em] uppercase"
                   style={{ color: 'rgba(255,255,255,0.22)' }}
                 >
-                  Next Up
+                  {t.navNextUp}
                 </span>
                 <span className="truncate text-[12px] font-medium leading-tight">
                   {next.shortTitle}
@@ -278,7 +284,7 @@ export function BottomNav({
                 e.currentTarget.style.borderColor = 'rgba(247,195,93,0.3)';
               }}
             >
-              Start Over
+              {t.navStartOver}
             </button>
           )}
         </div>

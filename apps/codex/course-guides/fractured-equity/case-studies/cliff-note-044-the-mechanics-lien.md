@@ -3,7 +3,7 @@ id: cliff-note-044-the-mechanics-lien
 slug: cliff-note-044-the-mechanics-lien
 title: "THE MECHANIC'S LIEN"
 type: case-study
-summary: A contractor filed a $38,000 mechanic's lien for unfinished roof work the owner died before paying. The lien was timely filed and valid — but settled for $12,000 when the investor documented substandard workmanship. Total acquisition: $34,500 against a $155,000 sale.
+summary: "A contractor filed a $38,000 mechanic's lien for unfinished roof work the owner died before paying. The lien was timely filed and valid — but settled for $12,000 when the investor documented substandard workmanship. Total acquisition: $34,500 against a $155,000 sale."
 tags: [mechanics-lien, materialman-lien, lien-settlement, roof, homestead-exception]
 aliases: [mechanic's lien, materialman's lien, contractor lien, Texas Property Code Chapter 53]
 doctrines: [fractured-equity, affidavit-of-heirship]

@@ -4,6 +4,7 @@ import { motion } from 'framer-motion';
 import { useState } from 'react';
 import type { Topic, CodexEntity } from '@/types/codex';
 import { CodexLink } from '../CodexLink';
+import { useTranslations } from '@/lib/locale-context';
 
 const noiseUrl =
   "data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E";
@@ -22,19 +23,13 @@ const itemVariants = {
   },
 };
 
-const DIFFICULTY_CONFIG = {
-  beginner: { label: 'Beginner', color: '#4ade80', bg: 'rgba(74,222,128,0.10)', border: 'rgba(74,222,128,0.28)' },
-  intermediate: { label: 'Intermediate', color: '#fbbf24', bg: 'rgba(251,191,36,0.10)', border: 'rgba(251,191,36,0.28)' },
-  advanced: { label: 'Advanced', color: '#f87171', bg: 'rgba(248,113,113,0.10)', border: 'rgba(248,113,113,0.28)' },
+const DIFFICULTY_COLORS = {
+  beginner: { color: '#4ade80', bg: 'rgba(74,222,128,0.10)', border: 'rgba(74,222,128,0.28)' },
+  intermediate: { color: '#fbbf24', bg: 'rgba(251,191,36,0.10)', border: 'rgba(251,191,36,0.28)' },
+  advanced: { color: '#f87171', bg: 'rgba(248,113,113,0.10)', border: 'rgba(248,113,113,0.28)' },
 };
 
 type TabId = 'overview' | 'risks' | 'related';
-
-const TABS: { id: TabId; label: string; shortLabel: string }[] = [
-  { id: 'overview', label: 'Overview', shortLabel: 'Overview' },
-  { id: 'risks', label: 'Risks & Signals', shortLabel: 'Risks' },
-  { id: 'related', label: 'Related', shortLabel: 'Related' },
-];
 
 interface TopicSlideProps {
   topic: Topic;
@@ -49,8 +44,22 @@ export function TopicSlide({
   slideNumber,
   totalTopics,
 }: TopicSlideProps) {
+  const t = useTranslations();
   const [activeTab, setActiveTab] = useState<TabId>('overview');
-  const difficulty = DIFFICULTY_CONFIG[topic.difficultyLevel] ?? DIFFICULTY_CONFIG.intermediate;
+
+  const difficultyLabels = {
+    beginner: t.beginner,
+    intermediate: t.intermediate,
+    advanced: t.advanced,
+  };
+  const difficultyColors = DIFFICULTY_COLORS[topic.difficultyLevel] ?? DIFFICULTY_COLORS.intermediate;
+  const difficultyLabel = difficultyLabels[topic.difficultyLevel] ?? t.intermediate;
+
+  const TABS: { id: TabId; label: string; shortLabel: string }[] = [
+    { id: 'overview', label: t.tabOverview, shortLabel: t.tabOverview },
+    { id: 'risks', label: t.tabRisks, shortLabel: t.tabRisksShort },
+    { id: 'related', label: t.tabRelated, shortLabel: t.tabRelated },
+  ];
 
   const relatedSlugs = [
     ...(topic.relatedNodes ?? []),
@@ -100,12 +109,12 @@ export function TopicSlide({
             <span
               className="ml-1 rounded-full px-2.5 py-0.5 text-[10px] font-bold"
               style={{
-                color: difficulty.color,
-                background: difficulty.bg,
-                border: `1px solid ${difficulty.border}`,
+                color: difficultyColors.color,
+                background: difficultyColors.bg,
+                border: `1px solid ${difficultyColors.border}`,
               }}
             >
-              {difficulty.label}
+              {difficultyLabel}
             </span>
             {topic.estimatedReadTime && (
               <span className="flex items-center gap-1 text-[10px] text-white/28">
@@ -202,7 +211,7 @@ export function TopicSlide({
                     >
                       <p className="mb-2 text-[11px] font-bold tracking-[0.18em] uppercase"
                         style={{ color: 'rgba(255,255,255,0.38)' }}>
-                        Why It Matters
+                        {t.whyItMatters}
                       </p>
                       <p className="text-sm text-white/70 leading-relaxed line-clamp-5">
                         {topic.whyItMatters}
@@ -242,7 +251,7 @@ export function TopicSlide({
                       <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
                         <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
                       </svg>
-                      Operator Notes
+                      {t.operatorNotes}
                     </p>
                     <p className="text-sm text-white/65 leading-relaxed">{topic.operatorNotes}</p>
                   </div>
@@ -256,7 +265,7 @@ export function TopicSlide({
                   <div>
                     <p className="mb-3 text-[11px] font-bold tracking-[0.18em] uppercase"
                       style={{ color: 'rgba(255,255,255,0.35)' }}>
-                      Risks
+                      {t.risksLabel}
                     </p>
                     <div className="space-y-2">
                       {topic.risks.map((risk, i) => (
@@ -301,7 +310,7 @@ export function TopicSlide({
                   <div>
                     <p className="mb-3 text-[11px] font-bold tracking-[0.18em] uppercase"
                       style={{ color: 'rgba(255,255,255,0.35)' }}>
-                      Disqualifiers — When to pass
+                      {t.disqualifiers}
                     </p>
                     <div className="space-y-2">
                       {topic.disqualifiers.map((d, i) => (
@@ -338,7 +347,7 @@ export function TopicSlide({
                   <div>
                     <p className="mb-3 text-[11px] font-bold tracking-[0.18em] uppercase"
                       style={{ color: 'rgba(255,255,255,0.35)' }}>
-                      Related Concepts
+                      {t.relatedConcepts}
                     </p>
                     <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                       {topic.relatedNodes.map((slug) => (
@@ -352,7 +361,7 @@ export function TopicSlide({
                   <div>
                     <p className="mb-3 text-[11px] font-bold tracking-[0.18em] uppercase"
                       style={{ color: 'rgba(255,255,255,0.35)' }}>
-                      Next Steps — Where to go from here
+                      {t.nextStepsLabel}
                     </p>
                     <div className="flex flex-wrap gap-2">
                       {topic.nextSteps.map((slug) => (
@@ -370,7 +379,7 @@ export function TopicSlide({
                 )}
 
                 {relatedSlugs.length === 0 && (
-                  <p className="text-sm text-white/25 italic">No related content linked for this topic.</p>
+                  <p className="text-sm text-white/25 italic">{t.noRelatedContent}</p>
                 )}
               </div>
             )}
@@ -390,12 +399,12 @@ export function TopicSlide({
             <span
               className="rounded-lg px-3 py-1.5 text-xs font-bold tracking-wide"
               style={{
-                color: difficulty.color,
-                background: difficulty.bg,
-                border: `1px solid ${difficulty.border}`,
+                color: difficultyColors.color,
+                background: difficultyColors.bg,
+                border: `1px solid ${difficultyColors.border}`,
               }}
             >
-              {difficulty.label}
+              {difficultyLabel}
             </span>
             {topic.estimatedReadTime && (
               <span className="flex items-center gap-1.5 text-xs"
@@ -404,7 +413,7 @@ export function TopicSlide({
                   <circle cx="12" cy="12" r="10" />
                   <polyline points="12 6 12 12 16 14" />
                 </svg>
-                {topic.estimatedReadTime} min read
+                {topic.estimatedReadTime} {t.minRead}
               </span>
             )}
           </div>
@@ -420,7 +429,7 @@ export function TopicSlide({
             >
               <p className="mb-2.5 text-[10px] font-bold tracking-[0.2em] uppercase"
                 style={{ color: 'rgba(74,222,128,0.6)' }}>
-                Look for these signals
+                {t.lookForSignals}
               </p>
               <div className="flex flex-col gap-1.5">
                 {topic.applicabilitySignals.slice(0, 6).map((signal, i) => (

@@ -3,7 +3,7 @@ id: cliff-note-043-the-hoa-assessment-arrearage
 slug: cliff-note-043-the-hoa-assessment-arrearage
 title: "THE HOA ASSESSMENT ARREARAGE"
 type: case-study
-summary: A $22,000 HOA lien accumulated over six years — assessments plus attorney fees — with foreclosure threatened under Texas Property Code § 209.009. Three cooperative heirs sold for $12,000 combined. The HOA accepted $14,500 to release all liens. Net: $42,000.
+summary: "A $22,000 HOA lien accumulated over six years — assessments plus attorney fees — with foreclosure threatened under Texas Property Code § 209.009. Three cooperative heirs sold for $12,000 combined. The HOA accepted $14,500 to release all liens. Net: $42,000."
 tags: [HOA-lien, assessment-arrearage, HOA-foreclosure, negotiation, gated-subdivision]
 aliases: [HOA lien, HOA arrearage, homeowner association lien, assessment lien]
 doctrines: [fractured-equity, affidavit-of-heirship]

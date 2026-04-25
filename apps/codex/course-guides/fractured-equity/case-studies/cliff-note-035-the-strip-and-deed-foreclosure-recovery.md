@@ -3,7 +3,7 @@ id: cliff-note-035-the-strip-and-deed-foreclosure-recovery
 slug: cliff-note-035-the-strip-and-deed-foreclosure-recovery
 title: "THE STRIP-AND-DEED FORECLOSURE RECOVERY"
 type: case-study
-summary: A sham foreclosure engineered by the decedent's estranged son — straw buyer at auction, immediate deed-out to a family LLC — stripped the property from the actual heirs. Combined UVTA and defective-notice claims brought a settlement: property conveyed plus $45,000 damages.
+summary: "A sham foreclosure engineered by the decedent's estranged son — straw buyer at auction, immediate deed-out to a family LLC — stripped the property from the actual heirs. Combined UVTA and defective-notice claims brought a settlement: property conveyed plus $45,000 damages."
 tags: [sham-foreclosure, fraudulent-transfer, UVTA, straw-buyer, defective-notice]
 aliases: [strip and deed, sham foreclosure, fraudulent conveyance recovery]
 doctrines: [fractured-equity, partition-action, quiet-title]

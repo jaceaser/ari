@@ -2,15 +2,7 @@
 
 import { motion, AnimatePresence } from 'framer-motion';
 import type { Slide } from '@/lib/slide-builder';
-
-const TYPE_BADGES: Record<string, { label: string; color: string }> = {
-  hero: { label: 'INTRO', color: 'rgba(247,195,93,0.7)' },
-  'chapter-intro': { label: 'CHAPTER', color: 'rgba(255,255,255,0.3)' },
-  topic: { label: 'TOPIC', color: 'rgba(247,195,93,0.6)' },
-  'case-study': { label: 'CASE', color: 'rgba(59,178,152,0.7)' },
-  pathway: { label: 'PATH', color: 'rgba(147,112,200,0.7)' },
-  map: { label: 'MAP', color: 'rgba(96,165,250,0.7)' },
-};
+import { useTranslations } from '@/lib/locale-context';
 
 interface CurriculumSidebarProps {
   open: boolean;
@@ -50,6 +42,16 @@ export function CurriculumSidebar({
   onNavigate,
   onClose,
 }: CurriculumSidebarProps) {
+  const t = useTranslations();
+  const TYPE_BADGES: Record<string, { label: string; color: string }> = {
+    hero: { label: t.intro, color: 'rgba(247,195,93,0.7)' },
+    'chapter-intro': { label: t.chapter, color: 'rgba(255,255,255,0.3)' },
+    topic: { label: t.topicBadge, color: 'rgba(247,195,93,0.6)' },
+    'case-study': { label: t.caseBadge, color: 'rgba(59,178,152,0.7)' },
+    pathway: { label: t.pathBadge, color: 'rgba(147,112,200,0.7)' },
+    appendix: { label: t.appxBadge, color: 'rgba(147,197,253,0.7)' },
+    map: { label: t.mapBadge, color: 'rgba(96,165,250,0.7)' },
+  };
   const groups = groupByChapter(slides);
   const visitedCount = visitedSlides.size;
 
