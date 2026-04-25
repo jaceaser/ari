@@ -591,7 +591,7 @@ def _add_cors_headers(response: Response) -> Response:
     if origin:
         response.headers["Access-Control-Allow-Origin"] = origin
         response.headers["Vary"] = "Origin"
-    response.headers["Access-Control-Allow-Methods"] = "POST, GET, OPTIONS"
+    response.headers["Access-Control-Allow-Methods"] = "POST, GET, DELETE, PATCH, OPTIONS"
     response.headers["Access-Control-Allow-Headers"] = (
         "Content-Type, Authorization, X-Requested-With, X-Request-ID"
     )
@@ -1744,7 +1744,6 @@ async def _classify_user_intent(prompt: str, user_id: str | None = None) -> str 
                 {"role": "user", "content": prompt},
             ],
             max_completion_tokens=10,
-            temperature=0,
         )
         _usage = getattr(resp, "usage", None)
         if _metering:

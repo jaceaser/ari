@@ -516,8 +516,7 @@ async def _ai_extract_lead_params(prompt: str) -> tuple[Optional[str], Optional[
                     {"role": "system", "content": _LOCATION_EXTRACT_SYSTEM},
                     {"role": "user", "content": prompt},
                 ],
-                max_tokens=80,
-                temperature=0,
+                max_completion_tokens=80,
             )
             raw = (response.choices[0].message.content or "").strip()
             # Strip markdown fences if present

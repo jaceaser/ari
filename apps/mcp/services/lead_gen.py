@@ -129,7 +129,8 @@ def parse_property_data(html_content: bytes) -> pd.DataFrame:
                 continue
 
             data = match.group(1)
-            parsed = json.loads(f'{{"searchResults": {data[:-1]}}}')
+            # raw_decode ignores trailing garbage that triggers "Extra data" on json.loads
+            parsed, _ = json.JSONDecoder().raw_decode(f'{{"searchResults": {data[:-1]}}}')
             listings = parsed["searchResults"]["listResults"]
             if not listings:
                 continue
