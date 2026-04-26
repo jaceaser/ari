@@ -58,10 +58,19 @@ export async function POST(req: NextRequest) {
       includeScore: true,
     });
 
-    const results = fuse.search(message);
+    // Build a context-aware search query: current message + recent conversation
+    // so that follow-up questions like "where can I learn it?" resolve correctly
+    const recentText = (history as { role: string; content: string }[])
+      .slice(-4)
+      .map((h) => h.content)
+      .join(' ');
+    const searchQuery = `${message} ${recentText}`.slice(0, 600).trim();
+
+    const results = fuse.search(searchQuery);
     const topEntities = results.slice(0, 8).map((r) => r.item);
-    // Fall back to a sample if search finds nothing
-    const contextEntities = topEntities.length > 0 ? topEntities : entities.slice(0, 6);
+    // Fall back to a broader search on just the message if context query missed
+    const fallback = topEntities.length === 0 ? fuse.search(message).slice(0, 6).map((r) => r.item) : [];
+    const contextEntities = topEntities.length > 0 ? topEntities : fallback.length > 0 ? fallback : entities.slice(0, 6);
 
     const contextText = contextEntities.map(buildEntityContext).join('\n\n---\n\n');
 
