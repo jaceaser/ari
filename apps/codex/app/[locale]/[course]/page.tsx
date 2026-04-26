@@ -1,3 +1,5 @@
+import fs from 'fs'
+import path from 'path'
 import { notFound } from 'next/navigation'
 import { loadCourse, serializeCourse } from '@/lib/content-loader'
 import { PresentationPlayer } from '@/components/codex/PresentationPlayer'
@@ -6,6 +8,18 @@ import { SUPPORTED_LOCALES } from '@/lib/translations'
 
 // Known static routes that Next.js may try to resolve through [course]
 const RESERVED = new Set(['favicon.ico', 'robots.txt', 'sitemap.xml', '_next'])
+
+export async function generateStaticParams() {
+  const guidesDir = path.join(process.cwd(), 'course-guides')
+  const courses = fs.readdirSync(guidesDir).filter(
+    (name) =>
+      !name.startsWith('.') &&
+      fs.statSync(path.join(guidesDir, name)).isDirectory()
+  )
+  return SUPPORTED_LOCALES.flatMap((locale) =>
+    courses.map((course) => ({ locale, course }))
+  )
+}
 
 interface CoursePageProps {
   params: Promise<{ locale: string; course: string }>

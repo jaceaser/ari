@@ -13,8 +13,13 @@ import { TopicSlide } from './slides/TopicSlide';
 import { CaseStudySlide } from './slides/CaseStudySlide';
 import { PathwaySlide } from './slides/PathwaySlide';
 import { GlossarySlide } from './slides/GlossarySlide';
-import { MapSlide } from './slides/MapSlide';
+import dynamic from 'next/dynamic';
 import { AppendixSlide } from './slides/AppendixSlide';
+
+const MapSlide = dynamic(
+  () => import('./slides/MapSlide').then((m) => ({ default: m.MapSlide })),
+  { loading: () => <div className="flex items-center justify-center h-full text-white/30 text-sm">Loading knowledge map…</div> }
+);
 import { BottomNav } from './BottomNav';
 import { CurriculumSidebar } from './CurriculumSidebar';
 import { TableOfContents } from './TableOfContents';
