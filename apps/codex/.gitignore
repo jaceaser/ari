@@ -1,0 +1,17 @@
+# Next.js
+.next/
+out/
+
+# Dependencies
+node_modules/
+
+# Environment
+.env.local
+.env.*.local
+
+# Pipeline output — generated, not committed
+course-guides/*/extracted/
+
+# Misc
+.DS_Store
+*.log
