@@ -19,6 +19,7 @@ import { BottomNav } from './BottomNav';
 import { CurriculumSidebar } from './CurriculumSidebar';
 import { TableOfContents } from './TableOfContents';
 import { ContentExplorer } from './ContentExplorer';
+import { AriChat } from './AriChat';
 import { PresentationContext } from '@/contexts/PresentationContext';
 
 const STORAGE_KEY = 'codex-visited';
@@ -302,6 +303,9 @@ export function PresentationPlayer({ course, courseSlug, locale = 'en' }: Presen
             </motion.div>
           </AnimatePresence>
         </div>
+
+        {/* ARI chat bubble (z-80) */}
+        <AriChat />
 
         {/* Bottom navigation (z-50, outside AnimatePresence) */}
         <BottomNav
