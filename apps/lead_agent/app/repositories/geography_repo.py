@@ -66,6 +66,7 @@ class GeographyRepo:
                 slug=LeadTypeSlug(r.slug),
                 display_name=r.display_name,
                 url_template=r.url_template,
+                refresh_interval_days=r.refresh_interval_days,
             )
             for r in rows
         ]

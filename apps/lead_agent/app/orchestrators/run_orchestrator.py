@@ -134,6 +134,15 @@ class RunOrchestrator:
             # Step 9: tag every property with its lead type + system tags
             self._apply_tags(dedup_stats.property_ids, lead_type.slug)
 
+            # Step 10: soft-expire properties not seen in this run that are
+            # older than the refresh interval for this lead type
+            expired = self._run_repo.expire_stale_properties(
+                geography_id=geo.id,
+                lead_type_slug=lead_type.slug,
+                refresh_interval_days=lead_type.refresh_interval_days,
+                active_property_ids=dedup_stats.property_ids,
+            )
+
             self._run_repo.mark_completed(
                 run_id, pages=pages_fetched, raw=raw_count,
                 new=dedup_stats.new_count, updated=dedup_stats.updated_count,
@@ -148,14 +157,15 @@ class RunOrchestrator:
                 raw_count=raw_count, new_count=dedup_stats.new_count,
                 updated_count=dedup_stats.updated_count,
                 duplicate_count=dedup_stats.duplicate_count,
+                expired_count=expired,
                 duration_seconds=duration,
             )
             logger.info(
                 "scrape_run_completed run_uuid=%s geo=%s lead_type=%s "
-                "pages=%d raw=%d new=%d updated=%d dupes=%d duration=%.1fs",
+                "pages=%d raw=%d new=%d updated=%d dupes=%d expired=%d duration=%.1fs",
                 run_uuid, geo.zillow_slug, lead_type.slug,
                 pages_fetched, raw_count, dedup_stats.new_count,
-                dedup_stats.updated_count, dedup_stats.duplicate_count, duration,
+                dedup_stats.updated_count, dedup_stats.duplicate_count, expired, duration,
             )
             return result
 

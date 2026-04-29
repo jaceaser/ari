@@ -2,12 +2,21 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
+from sqlalchemy import update, select
 from sqlalchemy.orm import Session
 
-from app.models.db import LeadListDefinition, LeadListMembership, PropertyObservation, ScrapeRun
+from app.models.db import (
+    LeadListDefinition,
+    LeadListMembership,
+    Property,
+    PropertyObservation,
+    PropertyTag,
+    PropertyTagMap,
+    ScrapeRun,
+)
 from app.models.domain import RunStatus, TriggerType
 
 
@@ -172,3 +181,48 @@ class ScrapeRunRepo:
                 self._db.rollback()
         self._db.commit()
         return inserted
+
+    def expire_stale_properties(
+        self,
+        geography_id: int,
+        lead_type_slug: str,
+        refresh_interval_days: int,
+        active_property_ids: list[int],
+    ) -> int:
+        """
+        After a completed scrape, mark is_active=False on properties in this
+        geography that carry the given lead_type tag but were not seen in the
+        current run and haven't been seen within refresh_interval_days.
+
+        Guards against false-expiry on empty runs: if active_property_ids is
+        empty we skip — an empty scrape result most likely means a fetch error,
+        not that all properties have gone off Zillow.
+
+        Returns the number of properties expired.
+        """
+        if not active_property_ids:
+            return 0
+
+        stale_cutoff = datetime.now(timezone.utc) - timedelta(days=refresh_interval_days)
+
+        tagged_subq = (
+            select(PropertyTagMap.property_id)
+            .join(PropertyTag, PropertyTagMap.tag_id == PropertyTag.id)
+            .where(PropertyTag.slug == lead_type_slug)
+            .scalar_subquery()
+        )
+
+        stmt = (
+            update(Property)
+            .where(
+                Property.geography_id == geography_id,
+                Property.is_active == True,
+                Property.last_seen_at < stale_cutoff,
+                Property.id.in_(tagged_subq),
+                Property.id.notin_(active_property_ids),
+            )
+            .values(is_active=False)
+        )
+        result = self._db.execute(stmt)
+        self._db.commit()
+        return result.rowcount

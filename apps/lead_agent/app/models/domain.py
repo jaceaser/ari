@@ -57,6 +57,7 @@ class LeadTypeRecord(BaseModel):
     slug: LeadTypeSlug
     display_name: str
     url_template: str
+    refresh_interval_days: int = 30
 
 
 class PropertyRaw(BaseModel):
@@ -127,5 +128,6 @@ class RunResult(BaseModel):
     new_count: int
     updated_count: int
     duplicate_count: int
+    expired_count: int = 0
     error_message: Optional[str] = None
     duration_seconds: Optional[float] = None

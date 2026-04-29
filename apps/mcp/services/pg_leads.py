@@ -66,6 +66,7 @@ WHERE (
 )
   AND p.address_state = %(state)s
   AND pt.slug         = %(tag_slug)s
+  AND p.is_active     = TRUE
 ORDER BY po.price ASC NULLS LAST
 LIMIT 500
 """
